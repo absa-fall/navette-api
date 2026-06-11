@@ -34,11 +34,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::get('/rapports/{id}/download', [RapportVoyageController::class, 'download']);
-    Route::get(
-    '/notifications/sidebar',
-    [NotificationController::class, 'sidebar']
-    
-);
+
+    // Notifications
+    Route::get('/notifications/sidebar', [NotificationController::class, 'sidebar']);
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::post('/notifications', [NotificationController::class, 'store']);
+    Route::patch('/notifications/{id}/lu', [NotificationController::class, 'marquerLu']);
+    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 
     // Users (admin)
     Route::middleware('role:admin')->group(function () {
@@ -76,41 +78,47 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // ORDRES DE MISSION
     // ============================================
-// DDL
-Route::middleware('role:ddl')->group(function () {
-    Route::post('/ordres-mission', [OrdreMissionController::class, 'store']);
-    Route::get('/mes-ordres', [OrdreMissionController::class, 'mesOrdres']);
-    Route::delete('/ordres-mission/{id}', [OrdreMissionController::class, 'destroy']);
-    Route::put('/ordres-mission/{id}', [OrdreMissionController::class, 'update']);
-});
 
-// DRH
-Route::middleware('role:drh')->group(function () {
-    Route::patch('/ordres-mission/{id}/approuver-drh', [OrdreMissionController::class, 'approuverDRH']);
-    Route::patch('/ordres-mission/{id}/rejeter-drh', [OrdreMissionController::class, 'rejeterDRH']);
-});
+    // DDL
+    Route::middleware('role:ddl')->group(function () {
+        Route::post('/ordres-mission', [OrdreMissionController::class, 'store']);
+        Route::get('/mes-ordres', [OrdreMissionController::class, 'mesOrdres']);
+        Route::delete('/ordres-mission/{id}', [OrdreMissionController::class, 'destroy']);
+        Route::put('/ordres-mission/{id}', [OrdreMissionController::class, 'update']);
+    });
 
-// SG DRH
-Route::middleware('role:sg_drh')->group(function () {
-    Route::get('/ordres-mission-a-signer', [OrdreMissionController::class, 'aSigner']);
-    Route::patch('/ordres-mission/{id}/signer', [OrdreMissionController::class, 'signer']);
-});
+    // DRH
+    Route::middleware('role:drh')->group(function () {
+        Route::patch('/ordres-mission/{id}/approuver-drh', [OrdreMissionController::class, 'approuverDRH']);
+        Route::patch('/ordres-mission/{id}/rejeter-drh', [OrdreMissionController::class, 'rejeterDRH']);
+    });
 
-// Chauffeur
-Route::middleware('role:chauffeur')->group(function () {
-    Route::get('/ordres-mission-chauffeur', [OrdreMissionController::class, 'pourChauffeur']);
-    Route::patch('/ordres-mission/{id}/marquer-recu', [OrdreMissionController::class, 'marquerRecu']);
-});
+    // SG DRH
+    Route::middleware('role:sg_drh')->group(function () {
+        Route::get('/ordres-mission-a-signer', [OrdreMissionController::class, 'aSigner']);
+        Route::patch('/ordres-mission/{id}/signer', [OrdreMissionController::class, 'signer']);
+    });
 
-// Tous les authentifiés
-Route::get('/ordres-mission', [OrdreMissionController::class, 'index']);
-Route::get('/ordres-mission/{id}', [OrdreMissionController::class, 'show']);
+    // Chauffeur
+    Route::middleware('role:chauffeur')->group(function () {
+        Route::get('/ordres-mission-chauffeur', [OrdreMissionController::class, 'pourChauffeur']);
+        Route::post('/ordres-mission/{id}/accepter', [OrdreMissionController::class, 'accepterMission']);
+        Route::post('/ordres-mission/{id}/refuser', [OrdreMissionController::class, 'refuserMission']);
+        Route::patch('/ordres-mission/{id}/marquer-recu', [OrdreMissionController::class, 'marquerRecu']);
+        Route::patch('/reservations/{id}/confirmer', [ReservationController::class, 'confirmer']);
+Route::patch('/reservations/{id}/refuser', [ReservationController::class, 'refuser']);
+    });
+
+    // Tous les authentifiés
+    Route::get('/ordres-mission', [OrdreMissionController::class, 'index']);
+    Route::get('/ordres-mission/{id}', [OrdreMissionController::class, 'show']);
+    Route::delete('/ordres-mission/{id}/historique', [OrdreMissionController::class, 'supprimerHistorique']);
+    Route::post('/ordres-mission/{id}/masquer', [OrdreMissionController::class, 'supprimerHistorique']);
+
     // ============================================
     // REGISTRES
     // ============================================
 
-
-    
     Route::patch('/reservations/{id}/montant', [ReservationController::class, 'updateMontant']);
 
     // ============================================
@@ -158,8 +166,4 @@ Route::get('/ordres-mission/{id}', [OrdreMissionController::class, 'show']);
         Route::post('/recapitulatifs/generer', [RecapitulatifHebdoController::class, 'generer']);
         Route::patch('/recapitulatifs/{id}/valider', [RecapitulatifHebdoController::class, 'valider']);
     });
-    Route::delete('/ordres-mission/{id}/historique', [OrdreMissionController::class, 'supprimerHistorique']);
-       
-    Route::post('/ordres-mission/{id}/masquer', [OrdreMissionController::class, 'supprimerHistorique']);
 });
-

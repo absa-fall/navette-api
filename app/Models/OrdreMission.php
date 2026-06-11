@@ -27,6 +27,7 @@ class OrdreMission extends Model
         'date_retour',
         'frais_transport',
         'indemnite_deplacement',
+        'statut_chauffeur',
         // Champs calcul et statut
         'trajet',
         'trajet_autre',
@@ -53,6 +54,7 @@ class OrdreMission extends Model
         'objet_mission' => 'conduit la navette de l\'UAD',
         'frais_transport' => 'Appui en carburant',
         'indemnite_deplacement' => 'Néant',
+        'statut_chauffeur' => 'en_attente',
     ];
 
     public static function getMontantTrajet(string $trajet): float

@@ -20,53 +20,58 @@ class ReservationController extends Controller
 
     // Créer une réservation
     public function store(Request $request)
-    {
-        $request->validate([
-            'nom' => 'required|string|max:100',
-            'prenom' => 'required|string|max:100',
-            'categorie' => 'required|string|in:PER,PATS,ATR,Vacataire',
-            'type_profil' => 'required|string|in:permanent,non_permanent,contractuel,vacataire',
-            'ufr' => 'required|string|max:100',
-            'ville_depart' => 'required|string|max:100',
-            'ville_arrivee' => 'required|string|max:100',
-            'date_reservation' => 'required|date',
-            'heure_reservation' => 'required',
-        ]);
+{
+    $request->validate([
+        'nom' => 'required|string|max:100',
+        'prenom' => 'required|string|max:100',
+        'categorie' => 'required|string|in:PER,PATS,ATR,Vacataire',
+        'type_profil' => 'required|string|in:permanent,non_permanent,contractuel,vacataire',
+        'ufr' => 'required|string|max:100',
+        'type_trajet' => 'required|in:aller,retour,aller_retour',
+        'ville_depart' => 'required|string|max:100',
+        'ville_arrivee' => 'required|string|max:100',
+        'date_reservation' => 'required|date',
+        'heure_reservation' => 'required',
+    ]);
 
-        $qrCode = strtoupper(Str::random(11));
+    $qrCode = strtoupper(Str::random(11));
 
-        // Calcul du montant
-        $trajet = $request->ville_depart . ' - ' . $request->ville_arrivee;
-        $trajetInverse = $request->ville_arrivee . ' - ' . $request->ville_depart;
-        $montant = $this->tarifs[$trajet] ?? $this->tarifs[$trajetInverse] ?? 0;
+    $trajet = $request->ville_depart . ' - ' . $request->ville_arrivee;
+    $trajetInverse = $request->ville_arrivee . ' - ' . $request->ville_depart;
+    $montant = $this->tarifs[$trajet] ?? $this->tarifs[$trajetInverse] ?? 0;
 
-        // Si vacataire, gratuit
-        if ($request->type_profil === 'vacataire') {
-            $montant = 0;
-        }
-
-        $reservation = Reservation::create([
-            'nom' => $request->nom,
-            'prenom' => $request->prenom,
-            'categorie' => $request->categorie,
-            'type_profil' => $request->type_profil,
-            'ufr' => $request->ufr,
-            'ville_depart' => $request->ville_depart,
-            'ville_arrivee' => $request->ville_arrivee,
-            'date_reservation' => $request->date_reservation,
-            'heure_reservation' => $request->heure_reservation,
-            'qr_code' => $qrCode,
-            'statut' => 'en_attente',
-            'montant_retenue' => $montant,
-        ]);
-
-        return response()->json([
-            'message' => 'Réservation créée avec succès',
-            'reservation' => $reservation,
-            'qr_code' => $qrCode,
-            'montant' => $montant,
-        ]);
+    if ($request->type_profil === 'vacataire') {
+        $montant = 0;
     }
+
+    // Multiplier par 2 si aller-retour
+    if ($request->type_trajet === 'aller_retour') {
+        $montant *= 2;
+    }
+
+    $reservation = Reservation::create([
+        'nom' => $request->nom,
+        'prenom' => $request->prenom,
+        'categorie' => $request->categorie,
+        'type_profil' => $request->type_profil,
+        'ufr' => $request->ufr,
+        'type_trajet' => $request->type_trajet,
+        'ville_depart' => $request->ville_depart,
+        'ville_arrivee' => $request->ville_arrivee,
+        'date_reservation' => $request->date_reservation,
+        'heure_reservation' => $request->heure_reservation,
+        'qr_code' => $qrCode,
+        'statut' => 'en_attente_confirmation',
+        'montant_retenue' => $montant,
+    ]);
+
+    return response()->json([
+        'message' => 'Réservation envoyée ! En attente de confirmation du chauffeur.',
+        'reservation' => $reservation,
+        'qr_code' => $qrCode,
+        'montant' => $montant,
+    ]);
+}
 
     // Valider la montée (scan QR)
     public function validerMontee(Request $request)
@@ -129,22 +134,60 @@ class ReservationController extends Controller
     }
 
     // Liste des réservations pour le chauffeur
-    public function pourChauffeur(Request $request)
-    {
-        $reservations = Reservation::whereIn('statut', ['en_attente', 'confirmee', 'en_cours'])
-            ->orderBy('date_reservation')
-            ->orderBy('heure_reservation')
-            ->get();
+  public function pourChauffeur(Request $request)
+{
+    $reservations = Reservation::whereIn('statut', [
+        'en_attente_confirmation', 'confirmee', 'en_cours'
+    ])
+    ->orderBy('date_reservation')
+    ->orderBy('heure_reservation')
+    ->get();
 
-        return response()->json($reservations);
-    }
+    return response()->json($reservations);
+}
     public function destroy($id)
 {
     $reservation = Reservation::findOrFail($id);
     $reservation->delete();
     return response()->json(['message' => 'Réservation supprimée']);
+
+}
+// Chauffeur confirme une réservation
+public function confirmer(Request $request, $id)
+{
+    $reservation = Reservation::findOrFail($id);
+
+    if ($reservation->statut !== 'en_attente_confirmation') {
+        return response()->json(['message' => 'Action non autorisée'], 403);
+    }
+
+    $reservation->update([
+        'statut' => 'confirmee',
+        'chauffeur_id' => auth()->id(),
+    ]);
+
+    return response()->json([
+        'message' => 'Réservation confirmée',
+        'reservation' => $reservation
+    ]);
 }
 
+// Chauffeur refuse une réservation
+public function refuser(Request $request, $id)
+{
+    $reservation = Reservation::findOrFail($id);
+
+    if ($reservation->statut !== 'en_attente_confirmation') {
+        return response()->json(['message' => 'Action non autorisée'], 403);
+    }
+
+    $reservation->update(['statut' => 'refusee']);
+
+    return response()->json([
+        'message' => 'Réservation refusée',
+        'reservation' => $reservation
+    ]);
+}
     // Liste pour le SG VR - SANS QR CODE
     public function pourSGVR()
     {

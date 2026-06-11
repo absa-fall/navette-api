@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
@@ -16,7 +15,16 @@ class AuthController extends Controller
             'password' => 'required',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        // Vérifier que l'email est uniquement en minuscules
+        if ($request->email !== strtolower($request->email)) {
+            return response()->json([
+                'message' => 'L\'email doit être saisi uniquement en minuscules.'
+            ], 422);
+        }
+
+        $email = trim($request->email);
+
+        $user = User::where('email', $email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([

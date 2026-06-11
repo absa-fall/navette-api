@@ -39,6 +39,20 @@ class User extends Authenticatable
         ];
     }
 
+    // Nettoyer l'email : supprimer espaces + forcer minuscules
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($user) {
+            $user->email = strtolower(trim($user->email));
+        });
+
+        static::updating(function ($user) {
+            $user->email = strtolower(trim($user->email));
+        });
+    }
+
     // Relations
     public function ordresMissionDDL()
     {

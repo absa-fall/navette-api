@@ -5,37 +5,26 @@ namespace App\Http\Controllers;
 use App\Models\VoyageEtude;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Carbon\Carbon;
 
 class VoyageEtudeController extends Controller
 {
-    // PER permanent soumet une demande
+    // =========================
+    // 1. SOUMISSION VOYAGE
+    // =========================
     public function store(Request $request)
     {
         $user = auth()->user();
 
-        // Règle métier R1 : seuls les PER permanents
-       if ($user->role !== 'enseignant' || $user->statut !== 'permanent') {
+        if ($user->role !== 'enseignant' || $user->statut !== 'permanent') {
             return response()->json([
-                'message' => 'Seuls les enseignants PER permanents peuvent soumettre une demande de voyage d\'études'
+                'message' => 'Seuls les enseignants PER permanents peuvent soumettre une demande'
             ], 403);
         }
 
-        // Règle métier R1 : délai de 2 ans
         if (!VoyageEtude::estEligible($user->id)) {
             return response()->json([
-                'message' => 'Vous devez attendre 2 ans entre chaque voyage d\'études'
-            ], 403);
-        }
-
-        // Règle métier R3 : rapport manquant bloque
-        $voyageEnCours = VoyageEtude::where('enseignant_id', $user->id)
-            ->where('statut', 'approuve')
-            ->whereDoesntHave('rapport')
-            ->exists();
-
-        if ($voyageEnCours) {
-            return response()->json([
-                'message' => 'Vous avez un rapport de voyage en attente. Veuillez le soumettre avant de faire une nouvelle demande.'
+                'message' => 'Vous devez attendre 2 ans entre chaque voyage'
             ], 403);
         }
 
@@ -46,7 +35,6 @@ class VoyageEtudeController extends Controller
             'objet' => 'required|string',
         ]);
 
-        // Trouver le Vice-Recteur
         $viceRecteur = User::where('role', 'vice_recteur')->first();
 
         $voyage = VoyageEtude::create([
@@ -60,69 +48,65 @@ class VoyageEtudeController extends Controller
         ]);
 
         return response()->json([
-            'message' => 'Demande de voyage soumise au Vice-Recteur',
+            'message' => 'Demande soumise',
             'voyage' => $voyage
         ], 201);
     }
 
-    // Liste des voyages selon le rôle
+    // =========================
+    // 2. LISTE VOYAGES (IMPORTANT)
+    // =========================
     public function index()
     {
         $user = auth()->user();
 
-        $voyages = match($user->role) {
-            'ddl' => VoyageEtude::where('enseignant_id', $user->id)
-                ->with(['rapport'])
-                ->latest()->get(),
-            'vice_recteur' => VoyageEtude::where('statut', 'en_attente')
-                ->with(['enseignant'])
-                ->latest()->get(),
-            'admin' => VoyageEtude::with(['enseignant', 'viceRecteur', 'rapport'])
-                ->latest()->get(),
-            default => collect()
-        };
+        $voyages = VoyageEtude::with(['rapport', 'enseignant', 'viceRecteur'])
+            ->when($user->role === 'enseignant', function ($q) use ($user) {
+                $q->where('enseignant_id', $user->id);
+            })
+            ->when($user->role === 'vice_recteur', function ($q) {
+                $q->where('statut', 'en_attente');
+            })
+            ->latest()
+            ->get();
 
         return response()->json($voyages);
     }
 
-    // Voir un voyage
+    // =========================
+    // 3. VOIR UN VOYAGE
+    // =========================
     public function show($id)
     {
-        $voyage = VoyageEtude::with([
-            'enseignant',
-            'viceRecteur',
-            'rapport'
-        ])->findOrFail($id);
+        $voyage = VoyageEtude::with(['rapport', 'enseignant', 'viceRecteur'])
+            ->findOrFail($id);
 
         return response()->json($voyage);
     }
 
-    // Vice-Recteur approuve
-    public function approuver(Request $request, $id)
+    // =========================
+    // 4. APPROUVER
+    // =========================
+    public function approuver($id)
     {
         $voyage = VoyageEtude::findOrFail($id);
-
-        if ($voyage->statut !== 'en_attente') {
-            return response()->json(['message' => 'Action non autorisée'], 403);
-        }
-
-        // Date limite rapport = date_fin + 30 jours
-        $dateLimiteRapport = \Carbon\Carbon::parse($voyage->date_fin)->addDays(30);
 
         $voyage->update([
             'statut' => 'approuve',
             'vice_recteur_id' => auth()->id(),
             'ordre_mission_genere' => true,
-            'date_limite_rapport' => $dateLimiteRapport,
+            'date_limite_rapport' => Carbon::parse($voyage->date_fin)->addDays(30),
         ]);
 
         return response()->json([
-            'message' => 'Voyage approuvé. Ordre de mission généré automatiquement.',
+            'message' => 'Voyage approuvé',
             'voyage' => $voyage
         ]);
     }
 
-    // Vice-Recteur rejette
+    // =========================
+    // 5. REJETER
+    // =========================
     public function rejeter(Request $request, $id)
     {
         $request->validate([
@@ -130,10 +114,6 @@ class VoyageEtudeController extends Controller
         ]);
 
         $voyage = VoyageEtude::findOrFail($id);
-
-        if ($voyage->statut !== 'en_attente') {
-            return response()->json(['message' => 'Action non autorisée'], 403);
-        }
 
         $voyage->update([
             'statut' => 'rejete',
@@ -147,25 +127,22 @@ class VoyageEtudeController extends Controller
         ]);
     }
 
-    // Vérifier l'éligibilité de l'utilisateur connecté
+    // =========================
+    // 6. ÉLIGIBILITÉ
+    // =========================
     public function verifierEligibilite()
     {
         $user = auth()->user();
 
-        if ($user->type_profil !== 'PER' || $user->statut !== 'permanent') {
+        if ($user->role !== 'enseignant' || $user->statut !== 'permanent') {
             return response()->json([
                 'eligible' => false,
                 'message' => 'Vous n\'êtes pas PER permanent'
             ]);
         }
 
-        $eligible = VoyageEtude::estEligible($user->id);
-
         return response()->json([
-            'eligible' => $eligible,
-            'message' => $eligible
-                ? 'Vous êtes éligible pour soumettre une demande'
-                : 'Vous devez attendre 2 ans entre chaque voyage'
+            'eligible' => VoyageEtude::estEligible($user->id),
         ]);
     }
 }

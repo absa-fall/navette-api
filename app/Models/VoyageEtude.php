@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class VoyageEtude extends Model
 {
+    protected $table = 'voyages_etudes';
+
     protected $fillable = [
         'enseignant_id',
         'vice_recteur_id',
@@ -41,7 +43,6 @@ class VoyageEtude extends Model
         return $this->hasOne(RapportVoyage::class, 'voyage_id');
     }
 
-    // Vérifie si l'enseignant est éligible (2 ans depuis dernier voyage)
     public static function estEligible(int $enseignantId): bool
     {
         $dernierVoyage = self::where('enseignant_id', $enseignantId)
@@ -49,7 +50,9 @@ class VoyageEtude extends Model
             ->latest()
             ->first();
 
-        if (!$dernierVoyage) return true;
+        if (!$dernierVoyage) {
+            return true;
+        }
 
         return $dernierVoyage->date_debut->diffInYears(now()) >= 2;
     }

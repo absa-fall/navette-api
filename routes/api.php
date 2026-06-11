@@ -10,6 +10,7 @@ use App\Http\Controllers\VoyageEtudeController;
 use App\Http\Controllers\RapportVoyageController;
 use App\Http\Controllers\RecapitulatifHebdoController;
 use App\Http\Controllers\ReservationController;
+use App\Http\Controllers\NotificationController;
 
 // ============================================
 // ROUTES PUBLIQUES
@@ -32,6 +33,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
+    Route::get('/rapports/{id}/download', [RapportVoyageController::class, 'download']);
+    Route::get(
+    '/notifications/sidebar',
+    [NotificationController::class, 'sidebar']
+    
+);
 
     // Users (admin)
     Route::middleware('role:admin')->group(function () {
@@ -63,6 +70,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('role:sg_vr')->group(function () {
         Route::get('/reservations/sgvr', [ReservationController::class, 'pourSGVR']);
+        Route::delete('/reservations/{id}', [ReservationController::class, 'destroy']);
     });
 
     // ============================================
@@ -151,4 +159,7 @@ Route::get('/ordres-mission/{id}', [OrdreMissionController::class, 'show']);
         Route::patch('/recapitulatifs/{id}/valider', [RecapitulatifHebdoController::class, 'valider']);
     });
     Route::delete('/ordres-mission/{id}/historique', [OrdreMissionController::class, 'supprimerHistorique']);
+       
+    Route::post('/ordres-mission/{id}/masquer', [OrdreMissionController::class, 'supprimerHistorique']);
 });
+

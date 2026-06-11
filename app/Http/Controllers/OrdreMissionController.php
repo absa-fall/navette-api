@@ -9,11 +9,9 @@ use Illuminate\Http\Request;
 class OrdreMissionController extends Controller
 {
     // DDL soumet une demande
-   // DDL soumet une ademande
     public function store(Request $request)
     {
         $request->validate([
-            // Champs ordre de mission
             'chauffeur_id' => 'required|exists:users,id',
             'chauffeur_nom' => 'required|string|max:100',
             'chauffeur_prenom' => 'required|string|max:100',
@@ -28,7 +26,6 @@ class OrdreMissionController extends Controller
             'date_retour' => 'required|date|after_or_equal:date_depart',
             'frais_transport' => 'nullable|string|max:200',
             'indemnite_deplacement' => 'nullable|string|max:200',
-            // Champs calcul
             'trajet' => 'nullable|in:dakar_bambey,thies_bambey,bambey_ngouniane,autres',
             'trajet_autre' => 'nullable|string|max:200',
             'motif' => 'nullable|string',
@@ -38,7 +35,6 @@ class OrdreMissionController extends Controller
 
         $ordre = OrdreMission::create([
             'ddl_id' => auth()->id(),
-            // Champs ordre de mission
             'chauffeur_id' => $request->chauffeur_id,
             'chauffeur_nom' => $request->chauffeur_nom,
             'chauffeur_prenom' => $request->chauffeur_prenom,
@@ -53,7 +49,6 @@ class OrdreMissionController extends Controller
             'date_retour' => $request->date_retour,
             'frais_transport' => $request->frais_transport ?? 'Appui en carburant',
             'indemnite_deplacement' => $request->indemnite_deplacement ?? 'Néant',
-            // Champs calcul et statut
             'trajet' => $request->trajet,
             'trajet_autre' => $request->trajet_autre,
             'montant_trajet' => $montant,
@@ -67,31 +62,39 @@ class OrdreMissionController extends Controller
         ], 201);
     }
 
-    // Liste des ordres selon le rôle
+    // Liste des ordres selon le rôle avec filtre par statut
     public function index(Request $request)
     {
         $user = auth()->user();
 
-        $ordres = match($user->role) {
+        $query = match($user->role) {
             'ddl' => OrdreMission::where('ddl_id', $user->id)
-                ->with(['vehicule', 'chauffeur'])
-                ->latest()
-                ->get(),
-            'drh' => OrdreMission::with(['ddl', 'vehicule', 'chauffeur', 'sgDrh'])
-    ->latest()
-    ->get(),
-            'sg_drh' => OrdreMission::with(['ddl', 'vehicule', 'chauffeur', 'sgDrh'])
-    ->latest()
-    ->get(),
+                ->where('masque_ddl', false),
+            
+            'drh' => OrdreMission::where('masque_drh', false),
+            
+            'sg_drh' => OrdreMission::where('masque_sg_drh', false),
+            
             'chauffeur' => OrdreMission::where('chauffeur_id', $user->id)
-    ->with(['ddl', 'vehicule', 'sgDrh'])
-    ->latest()
-    ->get(),
-            'admin' => OrdreMission::with(['ddl', 'sgDrh', 'chauffeur', 'vehicule'])
-                ->latest()
-                ->get(),
-            default => collect()
+                ->where('masque_chauffeur', false),
+            
+            'admin' => OrdreMission::query(),
+            
+            default => null
         };
+
+        if (!$query) {
+            return response()->json([]);
+        }
+
+        // FILTRE PAR STATUT si présent dans la requête
+        if ($request->has('statut') && $request->statut) {
+            $query->where('statut', $request->statut);
+        }
+
+        $ordres = $query->with(['ddl', 'vehicule', 'chauffeur', 'sgDrh'])
+            ->latest()
+            ->get();
 
         return response()->json($ordres);
     }
@@ -122,54 +125,6 @@ class OrdreMissionController extends Controller
             'ordre' => $ordre
         ]);
     }
-    public function supprimerHistorique($id)
-{
-    $ordre = OrdreMission::findOrFail($id);
-    $user = auth()->user();
-
-    // Vérifier que l'ordre appartient à l'utilisateur selon son rôle
-    if ($user->role === 'ddl' && $ordre->ddl_id !== $user->id) {
-        return response()->json(['message' => 'Non autorisé'], 403);
-    }
-    if ($user->role === 'chauffeur' && $ordre->chauffeur_id !== $user->id) {
-        return response()->json(['message' => 'Non autorisé'], 403);
-    }
-
-    $ordre->delete();
-    return response()->json(['message' => 'Supprimé avec succès']);
-}
-    public function update(Request $request, $id)
-{
-    $ordre = OrdreMission::findOrFail($id);
-
-    if ($ordre->ddl_id !== auth()->id()) {
-        return response()->json(['message' => 'Non autorisé'], 403);
-    }
-
-    if ($ordre->statut !== 'en_attente_drh') {
-        return response()->json(['message' => 'Impossible de modifier un ordre déjà traité'], 403);
-    }
-
-    $ordre->update($request->all());
-
-    return response()->json(['message' => 'Ordre modifié avec succès', 'ordre' => $ordre]);
-}
-    public function destroy($id)
-{
-    $ordre = OrdreMission::findOrFail($id);
-
-    if ($ordre->ddl_id !== auth()->id()) {
-        return response()->json(['message' => 'Non autorisé'], 403);
-    }
-
-    if ($ordre->statut !== 'en_attente_drh') {
-        return response()->json(['message' => 'Impossible de supprimer un ordre déjà traité'], 403);
-    }
-
-    $ordre->delete();
-
-    return response()->json(['message' => 'Ordre supprimé avec succès']);
-}
 
     // DRH rejette
     public function rejeterDRH(Request $request, $id)
@@ -196,7 +151,7 @@ class OrdreMissionController extends Controller
         ]);
     }
 
-    // SG DRH signe et assigne chauffeur automatiquement
+    // SG DRH signe et assigne chauffeur
     public function signer(Request $request, $id)
     {
         $request->validate([
@@ -209,11 +164,10 @@ class OrdreMissionController extends Controller
             return response()->json(['message' => 'Action non autorisée'], 403);
         }
 
-        // Assigner chauffeur automatiquement si non fourni
         $chauffeurId = $request->chauffeur_id;
         if (!$chauffeurId) {
             $chauffeur = User::where('role', 'chauffeur')
-                ->where('active', true)
+                ->where('is_active', true)
                 ->first();
             $chauffeurId = $chauffeur ? $chauffeur->id : null;
         }
@@ -286,4 +240,82 @@ class OrdreMissionController extends Controller
 
         return response()->json($ordres);
     }
+
+   
+
+    // Modifier un ordre
+    public function update(Request $request, $id)
+{
+    $ordre = OrdreMission::findOrFail($id);
+
+    if ($ordre->ddl_id !== auth()->id()) {
+        return response()->json(['message' => 'Non autorisé'], 403);
+    }
+
+    // Permet de modifier si en_attente_drh OU rejete
+    if (!in_array($ordre->statut, ['en_attente_drh', 'rejete'])) {
+        return response()->json(['message' => 'Impossible de modifier un ordre déjà traité'], 403);
+    }
+
+    // Si c'était rejeté, remet en attente DRH après modification
+    $data = $request->all();
+    if ($ordre->statut === 'rejete') {
+        $data['statut'] = 'en_attente_drh';
+        $data['commentaire_rejet'] = null;
+        $data['drh_id'] = null;
+    }
+
+    $ordre->update($data);
+
+    return response()->json([
+        'message' => 'Ordre modifié avec succès. Il a été renvoyé au DRH pour approbation.',
+        'ordre' => $ordre
+    ]);
+}
+
+    // Supprimer un ordre
+   public function destroy($id)
+{
+    $ordre = OrdreMission::findOrFail($id);
+
+    if ($ordre->ddl_id !== auth()->id()) {
+        return response()->json(['message' => 'Non autorisé'], 403);
+    }
+
+    // Permet de supprimer si en_attente_drh OU rejete
+    if (!in_array($ordre->statut, ['en_attente_drh', 'rejete'])) {
+        return response()->json(['message' => 'Impossible de supprimer un ordre déjà traité'], 403);
+    }
+
+    $ordre->delete();
+
+    return response()->json(['message' => 'Ordre supprimé avec succès']);
+}
+
+public function supprimerHistorique(Request $request, $id)
+{
+    $ordre = OrdreMission::findOrFail($id);
+    $user = auth()->user();
+
+    // Le DDL peut masquer ses propres ordres rejetés
+    if ($user->role === 'ddl' && $ordre->ddl_id === $user->id) {
+        $ordre->update(['masque_ddl' => true]);
+        return response()->json(['message' => 'Demande masquée de votre vue']);
+    }
+
+    $champ = match($user->role) {
+        'drh' => 'masque_drh',
+        'sg_drh' => 'masque_sg_drh',
+        'chauffeur' => 'masque_chauffeur',
+        default => null
+    };
+
+    if (!$champ) {
+        return response()->json(['message' => 'Non autorisé'], 403);
+    }
+
+    $ordre->update([$champ => true]);
+
+    return response()->json(['message' => 'Supprimé de votre historique']);
+}
 }

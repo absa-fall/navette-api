@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class RapportVoyage extends Model
 {
+    protected $table = 'rapports_voyage';  // ← Ajoute ça ici
+
     protected $fillable = [
         'voyage_id',
         'enseignant_id',

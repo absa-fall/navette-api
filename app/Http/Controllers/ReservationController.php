@@ -138,6 +138,12 @@ class ReservationController extends Controller
 
         return response()->json($reservations);
     }
+    public function destroy($id)
+{
+    $reservation = Reservation::findOrFail($id);
+    $reservation->delete();
+    return response()->json(['message' => 'Réservation supprimée']);
+}
 
     // Liste pour le SG VR - SANS QR CODE
     public function pourSGVR()

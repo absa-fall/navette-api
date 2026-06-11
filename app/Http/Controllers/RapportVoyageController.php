@@ -9,59 +9,46 @@ use Illuminate\Http\Request;
 class RapportVoyageController extends Controller
 {
     // Enseignant soumet son rapport
-    public function store(Request $request)
-    {
-        $request->validate([
-            'voyage_id' => 'required|exists:voyages_etudes,id',
-            'contenu' => 'required|string',
-            'fichier_pdf' => 'nullable|file|mimes:pdf|max:10240',
-        ]);
+   public function store(Request $request)
+{
+    $request->validate([
+        'voyage_id' => 'required|exists:voyages_etudes,id',
+        'contenu' => 'required|string',
+        'fichier_pdf' => 'nullable|file|mimes:pdf|max:10240',
+    ]);
 
-        $voyage = VoyageEtude::findOrFail($request->voyage_id);
+    $voyage = VoyageEtude::findOrFail($request->voyage_id);
 
-        // Vérifier que c'est bien son voyage
-        if ($voyage->enseignant_id !== auth()->id()) {
-            return response()->json([
-                'message' => 'Action non autorisée'
-            ], 403);
-        }
-
-        // Vérifier que le voyage est approuvé
-        if ($voyage->statut !== 'approuve') {
-            return response()->json([
-                'message' => 'Vous ne pouvez soumettre un rapport que pour un voyage approuvé'
-            ], 403);
-        }
-
-        // Vérifier qu'un rapport n'existe pas déjà
-        $rapportExiste = RapportVoyage::where('voyage_id', $request->voyage_id)->exists();
-        if ($rapportExiste) {
-            return response()->json([
-                'message' => 'Un rapport a déjà été soumis pour ce voyage'
-            ], 422);
-        }
-
-        // Upload du fichier PDF
-        $fichierPath = null;
-        if ($request->hasFile('fichier_pdf')) {
-            $fichierPath = $request->file('fichier_pdf')
-                ->store('rapports', 'public');
-        }
-
-        $rapport = RapportVoyage::create([
-            'voyage_id' => $request->voyage_id,
-            'enseignant_id' => auth()->id(),
-            'contenu' => $request->contenu,
-            'fichier_pdf' => $fichierPath,
-            'date_depot' => now(),
-            'statut' => 'soumis',
-        ]);
-
-        return response()->json([
-            'message' => 'Rapport soumis avec succès',
-            'rapport' => $rapport
-        ], 201);
+    if ($voyage->enseignant_id !== auth()->id()) {
+        return response()->json(['message' => 'Accès interdit'], 403);
     }
+
+    if ($voyage->statut !== 'approuve') {
+        return response()->json(['message' => 'Voyage non approuvé'], 403);
+    }
+
+    // 🔴 ICI (ton code upload PDF)
+    $fichierPath = null;
+
+    if ($request->hasFile('fichier_pdf')) {
+        $fichierPath = $request->file('fichier_pdf')
+            ->store('rapports', 'public');
+    }
+
+    $rapport = RapportVoyage::create([
+        'voyage_id' => $request->voyage_id,
+        'enseignant_id' => auth()->id(),
+        'contenu' => $request->contenu,
+        'fichier_pdf' => $fichierPath,
+        'date_depot' => now(),
+        'statut' => 'soumis',
+    ]);
+
+    return response()->json([
+        'message' => 'Rapport soumis avec succès',
+        'rapport' => $rapport
+    ], 201);
+}
 
     // Liste des rapports selon le rôle
     public function index()
@@ -138,7 +125,25 @@ class RapportVoyageController extends Controller
             'rapport' => $rapport
         ]);
     }
+public function download($id)
+{
+    $rapport = RapportVoyage::with('voyage')->findOrFail($id);
 
+    $user = auth()->user();
+
+    // sécurité
+    if ($user->role !== 'vice_recteur' && $rapport->enseignant_id !== $user->id) {
+        return response()->json(['message' => 'Accès interdit'], 403);
+    }
+
+    if (!$rapport->fichier_pdf) {
+        return response()->json(['message' => 'Fichier introuvable'], 404);
+    }
+
+    return response()->file(
+        storage_path('app/public/' . $rapport->fichier_pdf)
+    );
+}
     // Enseignant re-soumet un rapport rejeté
     public function resoumettre(Request $request, $id)
     {

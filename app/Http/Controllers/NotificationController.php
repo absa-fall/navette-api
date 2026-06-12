@@ -92,7 +92,18 @@ class NotificationController extends Controller
 
         return response()->json(['message' => 'Notification marquée comme lue']);
     }
+public function marquerToutesLues()
+{
+    Notification::where('user_id', auth()->id())
+        ->where('lu', false)
+        ->update([
+            'lu' => true
+        ]);
 
+    return response()->json([
+        'message' => 'Toutes les notifications ont été marquées comme lues'
+    ]);
+}
     /**
      * Supprimer
      */
@@ -106,7 +117,14 @@ class NotificationController extends Controller
 
         return response()->json(['message' => 'Notification supprimée']);
     }
+public function supprimerToutes()
+{
+    Notification::where('user_id', auth()->id())->delete();
 
+    return response()->json([
+        'message' => 'Toutes les notifications ont été supprimées'
+    ]);
+}
     /**
      * Sidebar avec compteurs
      */
@@ -133,6 +151,7 @@ class NotificationController extends Controller
                 'trajetsAssignes' => 0,
                 'enAttente' => 0,
                 'trajetsEffectues' => 0,
+                'trajetsRefuses' => 0,
                 'mesDemandes' => 0,
                 'mesDemandesRejetees' => 0,
                 'notificationsNonLues' => 0,
@@ -168,6 +187,12 @@ class NotificationController extends Controller
                 $notifications['trajetsEffectues'] = OrdreMission::where('chauffeur_id', $user->id)
                     ->where('statut', 'execute')
                     ->count();
+                    $notifications['trajetsRefuses'] = OrdreMission::where(
+    'chauffeur_id',
+    $user->id
+)
+->where('statut', 'refuse_chauffeur')
+->count();
             }
 
             if ($role === 'ddl') {

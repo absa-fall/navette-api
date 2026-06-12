@@ -29,16 +29,29 @@ Route::get('/validation/verifier/{qrCode}', [ReservationController::class, 'veri
 // ============================================
 
 Route::middleware('auth:sanctum')->group(function () {
+    // ============================================
+// SCAN QR
+// ============================================
+Route::middleware('auth:sanctum')->group(function () {
+    // Passager scanne le QR du bus
+    Route::post('/scan/bus', [ReservationController::class, 'scannerBus']);
+    // Chauffeur scanne le QR du passager
+    Route::middleware('role:chauffeur')->group(function () {
+        Route::post('/scan/passager', [ReservationController::class, 'scannerPassager']);
+    });
+});
 
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::get('/rapports/{id}/download', [RapportVoyageController::class, 'download']);
 
-    // Notifications
+    // Notifications — routes fixes avant {id}
     Route::get('/notifications/sidebar', [NotificationController::class, 'sidebar']);
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::post('/notifications', [NotificationController::class, 'store']);
+    Route::patch('/notifications/lu-toutes', [NotificationController::class, 'marquerToutesLues']);
+    Route::delete('/notifications/toutes', [NotificationController::class, 'supprimerToutes']);
     Route::patch('/notifications/{id}/lu', [NotificationController::class, 'marquerLu']);
     Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 
@@ -54,9 +67,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/chauffeurs', [UserController::class, 'chauffeurs']);
     Route::get('/drhs', [UserController::class, 'drhs']);
 
-    // Vehicules
-    Route::get('/vehicules', [VehiculeController::class, 'index']);
+    // Vehicules — disponibles avant {id}
     Route::get('/vehicules/disponibles', [VehiculeController::class, 'disponibles']);
+    Route::get('/vehicules', [VehiculeController::class, 'index']);
     Route::get('/vehicules/{id}', [VehiculeController::class, 'show']);
     Route::middleware('role:admin')->group(function () {
         Route::post('/vehicules', [VehiculeController::class, 'store']);
@@ -106,7 +119,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/ordres-mission/{id}/refuser', [OrdreMissionController::class, 'refuserMission']);
         Route::patch('/ordres-mission/{id}/marquer-recu', [OrdreMissionController::class, 'marquerRecu']);
         Route::patch('/reservations/{id}/confirmer', [ReservationController::class, 'confirmer']);
-Route::patch('/reservations/{id}/refuser', [ReservationController::class, 'refuser']);
+        Route::patch('/reservations/{id}/refuser', [ReservationController::class, 'refuser']);
     });
 
     // Tous les authentifiés
@@ -122,7 +135,7 @@ Route::patch('/reservations/{id}/refuser', [ReservationController::class, 'refus
     Route::patch('/reservations/{id}/montant', [ReservationController::class, 'updateMontant']);
 
     // ============================================
-    // VOYAGES D'ETUDES
+    // VOYAGES D'ETUDES — eligibilite avant {id}
     // ============================================
 
     Route::get('/voyages/eligibilite', [VoyageEtudeController::class, 'verifierEligibilite']);
@@ -156,14 +169,16 @@ Route::patch('/reservations/{id}/refuser', [ReservationController::class, 'refus
     });
 
     // ============================================
-    // RECAPITULATIFS
+    // RECAPITULATIFS — generer avant {id} ✅
     // ============================================
 
     Route::get('/recapitulatifs', [RecapitulatifHebdoController::class, 'index']);
-    Route::get('/recapitulatifs/{id}', [RecapitulatifHebdoController::class, 'show']);
 
     Route::middleware('role:sg_vr')->group(function () {
-        Route::post('/recapitulatifs/generer', [RecapitulatifHebdoController::class, 'generer']);
+        Route::post('/recapitulatifs/generer', [RecapitulatifHebdoController::class, 'generer']); // ✅ avant {id}
         Route::patch('/recapitulatifs/{id}/valider', [RecapitulatifHebdoController::class, 'valider']);
     });
+
+    Route::get('/recapitulatifs/{id}', [RecapitulatifHebdoController::class, 'show']); // ✅ après generer
+
 });

@@ -2,43 +2,50 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class RegistreTrajet extends Model
 {
+    use HasFactory;
+
+    protected $table = 'registre_trajets';
+
     protected $fillable = [
-        'ordre_mission_id',
         'chauffeur_id',
-        'sg_vr_id',
+        'vehicule_id',
+        'ordre_mission_id',
         'date_trajet',
         'heure_depart',
         'heure_arrivee',
+        'kilometrage_depart',
+        'kilometrage_arrivee',
         'statut',
-        'date_cloture',
     ];
 
     protected $casts = [
         'date_trajet' => 'date',
-        'date_cloture' => 'datetime',
+        'heure_depart' => 'datetime',
+        'heure_arrivee' => 'datetime',
     ];
-
-    public function ordreMission()
-    {
-        return $this->belongsTo(OrdreMission::class);
-    }
 
     public function chauffeur()
     {
         return $this->belongsTo(User::class, 'chauffeur_id');
     }
 
-    public function sgVr()
+    public function vehicule()
     {
-        return $this->belongsTo(User::class, 'sg_vr_id');
+        return $this->belongsTo(Vehicule::class);
+    }
+
+    public function ordreMission()
+    {
+        return $this->belongsTo(OrdreMission::class);
     }
 
     public function presences()
     {
-        return $this->hasMany(PresenceNavette::class, 'registre_id');
+        return $this->hasMany(PresenceNavette::class, 'registre_trajet_id');
     }
 }

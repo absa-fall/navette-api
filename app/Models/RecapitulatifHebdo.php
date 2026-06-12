@@ -2,10 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class RecapitulatifHebdo extends Model
 {
+    use HasFactory;
+
+    protected $table = 'recapitulatifs_hebdo';
+
     protected $fillable = [
         'sg_vr_id',
         'semaine_debut',
@@ -19,7 +24,6 @@ class RecapitulatifHebdo extends Model
         'semaine_debut' => 'date',
         'semaine_fin' => 'date',
         'date_generation' => 'datetime',
-        'montant_total' => 'decimal:2',
     ];
 
     public function sgVr()

@@ -5,70 +5,110 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
-    public function login(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email',
-            'password' => 'required',
-        ]);
+   public function login(Request $request)
+   {
+       $request->validate([
+           'email' => 'required|email',
+           'password' => 'required',
+       ]);
 
-        // Vérifier que l'email est uniquement en minuscules
-        if ($request->email !== strtolower($request->email)) {
-            return response()->json([
-                'message' => 'L\'email doit être saisi uniquement en minuscules.'
-            ], 422);
-        }
+       if ($request->email !== strtolower($request->email)) {
+           return response()->json([
+               'message' => 'L\'email doit être saisi uniquement en minuscules.'
+           ], 422);
+       }
 
-        $email = trim($request->email);
+       $email = trim($request->email);
+       $user = User::where('email', $email)->first();
 
-        $user = User::where('email', $email)->first();
+       if (!$user || !Hash::check($request->password, $user->password)) {
+           return response()->json([
+               'message' => 'Email ou mot de passe incorrect'
+           ], 401);
+       }
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
-            return response()->json([
-                'message' => 'Email ou mot de passe incorrect'
-            ], 401);
-        }
+       if (!$user->is_active) {
+           return response()->json([
+               'message' => 'Votre compte est désactivé'
+           ], 403);
+       }
 
-        if (!$user->is_active) {
-            return response()->json([
-                'message' => 'Votre compte est désactivé'
-            ], 403);
-        }
+       $token = $user->createToken('auth_token')->plainTextToken;
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+       return response()->json([
+           'message' => 'Connexion réussie',
+           'user' => [
+               'id'          => $user->id,
+               'nom'         => $user->nom,
+               'prenom'      => $user->prenom,
+               'email'       => $user->email,
+               'role'        => $user->role,
+               'type_profil' => $user->type_profil,
+               'statut'      => $user->statut,
+               'ufr'         => $user->ufr,
+               'qr_code'     => $user->qr_code,
+           ],
+           'token' => $token,
+       ]);
+   }
 
-        return response()->json([
-            'message' => 'Connexion réussie',
-            'user' => [
-                'id' => $user->id,
-                'nom' => $user->nom,
-                'prenom' => $user->prenom,
-                'email' => $user->email,
-                'role' => $user->role,
-                'type_profil' => $user->type_profil,
-                'statut' => $user->statut,
-                'ufr' => $user->ufr,
-            ],
-            'token' => $token,
-        ]);
-    }
+   public function register(Request $request)
+   {
+       $request->validate([
+           'nom'         => 'required|string|max:100',
+           'prenom'      => 'required|string|max:100',
+           'email'       => 'required|email|unique:users,email',
+           'password'    => 'required|min:6',
+           'tel'         => 'nullable|string',
+           'matricule'   => 'nullable|string|unique:users,matricule',
+           'type_profil' => 'nullable|in:PER,PATS,ATR',
+           'statut'      => 'nullable|in:permanent,non_permanent,contractuel,vacataire',
+           'ufr'         => 'nullable|in:SATIC,SDD,ECOMIJ,ISFAR',
+           'role'        => 'required|in:ddl,drh,sg_drh,chauffeur,sg_vr,vice_recteur,admin,enseignant,usager',
+       ]);
 
-    public function logout(Request $request)
-    {
-        $request->user()->currentAccessToken()->delete();
+       $qrCode = null;
+       if ($request->role === 'usager') {
+           $qrCode = strtoupper(Str::random(10));
+       }
 
-        return response()->json([
-            'message' => 'Déconnexion réussie'
-        ]);
-    }
+       $user = User::create([
+           'nom'         => $request->nom,
+           'prenom'      => $request->prenom,
+           'email'       => strtolower(trim($request->email)),
+           'password'    => Hash::make($request->password),
+           'tel'         => $request->tel,
+           'matricule'   => $request->matricule,
+           'type_profil' => $request->type_profil,
+           'statut'      => $request->statut,
+           'ufr'         => $request->ufr,
+           'role'        => $request->role,
+           'qr_code'     => $qrCode,
+       ]);
 
-    public function me(Request $request)
-    {
-        return response()->json([
-            'user' => $request->user()
-        ]);
-    }
+       return response()->json([
+           'message' => 'Compte créé avec succès',
+           'user'    => $user,
+       ], 201);
+   }
+
+   public function logout(Request $request)
+   {
+       $request->user()->currentAccessToken()->delete();
+
+       return response()->json([
+           'message' => 'Déconnexion réussie'
+       ]);
+   }
+
+   public function me(Request $request)
+   {
+       return response()->json([
+           'user' => $request->user()
+       ]);
+   }
 }

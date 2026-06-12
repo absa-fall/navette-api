@@ -3,81 +3,90 @@
 namespace App\Http\Controllers;
 
 use App\Models\RecapitulatifHebdo;
-use App\Models\PresenceNavette;
-use App\Models\RegistreTrajet;
+use App\Models\Reservation;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class RecapitulatifHebdoController extends Controller
 {
-    // SG VR génère le récapitulatif hebdomadaire
     public function generer(Request $request)
     {
-        $request->validate([
-            'semaine_debut' => 'required|date',
-            'semaine_fin' => 'required|date|after:semaine_debut',
-        ]);
+        try {
+            $request->validate([
+                'semaine_debut' => 'required|date',
+                'semaine_fin'   => 'required|date|after:semaine_debut',
+            ]);
 
-        $debut = Carbon::parse($request->semaine_debut);
-        $fin = Carbon::parse($request->semaine_fin);
+            $debut = Carbon::parse($request->semaine_debut)->startOfDay();
+            $fin   = Carbon::parse($request->semaine_fin)->endOfDay();
 
-        // Récupérer tous les registres transmis de la semaine
-        $registres = RegistreTrajet::where('statut', 'transmis')
-            ->whereBetween('date_trajet', [$debut, $fin])
-            ->with(['presences.passager', 'ordreMission'])
-            ->get();
+            // Réservations terminées, montée validée, non vacataires
+            $reservations = Reservation::whereBetween('date_reservation', [$debut, $fin])
+                ->where('validee_montee', true)
+                ->where('type_profil', '!=', 'vacataire')
+                ->get();
 
-        if ($registres->isEmpty()) {
-            return response()->json([
-                'message' => 'Aucun registre trouvé pour cette semaine'
-            ], 404);
-        }
-
-        // Calculer le montant total (vacataires exclus automatiquement)
-        $montantTotal = $registres->sum(function ($registre) {
-            return $registre->presences
-                ->where('statut_passager', 'permanent')
-                ->sum('montant_retenue');
-        });
-
-        // Construire le détail par personne
-        $detailParPersonne = [];
-        foreach ($registres as $registre) {
-            foreach ($registre->presences as $presence) {
-                if ($presence->statut_passager === 'permanent') {
-                    $passagerId = $presence->passager_id;
-                    if (!isset($detailParPersonne[$passagerId])) {
-                        $detailParPersonne[$passagerId] = [
-                            'passager' => $presence->passager,
-                            'nombre_trajets' => 0,
-                            'montant_total' => 0,
-                        ];
-                    }
-                    $detailParPersonne[$passagerId]['nombre_trajets']++;
-                    $detailParPersonne[$passagerId]['montant_total'] += $presence->montant_retenue;
-                }
+            if ($reservations->isEmpty()) {
+                return response()->json([
+                    'message' => 'Aucune réservation validée trouvée pour cette semaine'
+                ], 422);
             }
+
+            // Calcul du montant total
+            $montantTotal = $reservations->sum('montant_retenue');
+
+            // Détail par personne
+            $detailParPersonne = [];
+            foreach ($reservations as $r) {
+                $key = $r->nom . ' ' . $r->prenom;
+                if (!isset($detailParPersonne[$key])) {
+                    $detailParPersonne[$key] = [
+                        'nom'           => $r->nom,
+                        'prenom'        => $r->prenom,
+                        'categorie'     => $r->categorie,
+                        'type_profil'   => $r->type_profil,
+                        'nombre_trajets' => 0,
+                        'montant_total' => 0,
+                        'trajets'       => [],
+                    ];
+                }
+                $detailParPersonne[$key]['nombre_trajets']++;
+                $detailParPersonne[$key]['montant_total'] += $r->montant_retenue;
+                $detailParPersonne[$key]['trajets'][] = [
+                    'date'    => $r->date_reservation,
+                    'trajet'  => $r->ville_depart . ' → ' . $r->ville_arrivee,
+                    'montant' => $r->montant_retenue,
+                ];
+            }
+
+            // Sauvegarde en base
+            $recap = RecapitulatifHebdo::create([
+                'sg_vr_id'        => auth()->id(),
+                'semaine_debut'   => $debut,
+                'semaine_fin'     => $fin,
+                'montant_total'   => $montantTotal,
+                'statut'          => 'brouillon',
+                'date_generation' => now(),
+            ]);
+
+            return response()->json([
+                'message'            => 'Récapitulatif généré avec succès',
+                'recap'              => $recap,
+                'montant_total'      => $montantTotal,
+                'detail_par_personne' => array_values($detailParPersonne),
+                'nombre_reservations' => $reservations->count(),
+            ], 201);
+
+        } catch (\Exception $e) {
+            Log::error('Erreur génération récapitulatif: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Erreur serveur',
+                'error'   => $e->getMessage()
+            ], 500);
         }
-
-        $recap = RecapitulatifHebdo::create([
-            'sg_vr_id' => auth()->id(),
-            'semaine_debut' => $debut,
-            'semaine_fin' => $fin,
-            'montant_total' => $montantTotal,
-            'statut' => 'brouillon',
-            'date_generation' => now(),
-        ]);
-
-        return response()->json([
-            'message' => 'Récapitulatif généré avec succès',
-            'recap' => $recap,
-            'montant_total' => $montantTotal,
-            'detail_par_personne' => array_values($detailParPersonne),
-            'nombre_registres' => $registres->count(),
-        ], 201);
     }
 
-    // Liste des récapitulatifs
     public function index()
     {
         $recaps = RecapitulatifHebdo::with('sgVr')
@@ -87,52 +96,48 @@ class RecapitulatifHebdoController extends Controller
         return response()->json($recaps);
     }
 
-    // Voir un récapitulatif avec détails
     public function show($id)
     {
         $recap = RecapitulatifHebdo::with('sgVr')->findOrFail($id);
 
-        $debut = Carbon::parse($recap->semaine_debut);
-        $fin = Carbon::parse($recap->semaine_fin);
+        $debut = Carbon::parse($recap->semaine_debut)->startOfDay();
+        $fin   = Carbon::parse($recap->semaine_fin)->endOfDay();
 
-        // Détail des présences de la semaine
-        $registres = RegistreTrajet::where('statut', 'transmis')
-            ->whereBetween('date_trajet', [$debut, $fin])
-            ->with(['presences.passager', 'ordreMission', 'chauffeur'])
+        $reservations = Reservation::whereBetween('date_reservation', [$debut, $fin])
+            ->where('validee_montee', true)
+            ->where('type_profil', '!=', 'vacataire')
             ->get();
 
         $detailParPersonne = [];
-        foreach ($registres as $registre) {
-            foreach ($registre->presences as $presence) {
-                if ($presence->statut_passager === 'permanent') {
-                    $passagerId = $presence->passager_id;
-                    if (!isset($detailParPersonne[$passagerId])) {
-                        $detailParPersonne[$passagerId] = [
-                            'passager' => $presence->passager,
-                            'nombre_trajets' => 0,
-                            'montant_total' => 0,
-                            'trajets' => [],
-                        ];
-                    }
-                    $detailParPersonne[$passagerId]['nombre_trajets']++;
-                    $detailParPersonne[$passagerId]['montant_total'] += $presence->montant_retenue;
-                    $detailParPersonne[$passagerId]['trajets'][] = [
-                        'date' => $registre->date_trajet,
-                        'trajet' => $registre->ordreMission->trajet,
-                        'montant' => $presence->montant_retenue,
-                    ];
-                }
+        foreach ($reservations as $r) {
+            $key = $r->nom . ' ' . $r->prenom;
+            if (!isset($detailParPersonne[$key])) {
+                $detailParPersonne[$key] = [
+                    'nom'            => $r->nom,
+                    'prenom'         => $r->prenom,
+                    'categorie'      => $r->categorie,
+                    'type_profil'    => $r->type_profil,
+                    'nombre_trajets' => 0,
+                    'montant_total'  => 0,
+                    'trajets'        => [],
+                ];
             }
+            $detailParPersonne[$key]['nombre_trajets']++;
+            $detailParPersonne[$key]['montant_total'] += $r->montant_retenue;
+            $detailParPersonne[$key]['trajets'][] = [
+                'date'    => $r->date_reservation,
+                'trajet'  => $r->ville_depart . ' → ' . $r->ville_arrivee,
+                'montant' => $r->montant_retenue,
+            ];
         }
 
         return response()->json([
-            'recap' => $recap,
+            'recap'               => $recap,
             'detail_par_personne' => array_values($detailParPersonne),
-            'nombre_registres' => $registres->count(),
+            'nombre_reservations' => $reservations->count(),
         ]);
     }
 
-    // SG VR valide le récapitulatif
     public function valider($id)
     {
         $recap = RecapitulatifHebdo::findOrFail($id);
@@ -147,7 +152,7 @@ class RecapitulatifHebdoController extends Controller
 
         return response()->json([
             'message' => 'Récapitulatif validé avec succès',
-            'recap' => $recap
+            'recap'   => $recap
         ]);
     }
 }

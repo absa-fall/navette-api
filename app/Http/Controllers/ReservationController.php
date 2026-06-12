@@ -72,6 +72,91 @@ class ReservationController extends Controller
         'montant' => $montant,
     ]);
 }
+// Passager scanne le QR du bus
+public function scannerBus(Request $request)
+{
+    $request->validate([
+        'qr_code_bus' => 'required|string'
+    ]);
+
+    // Vérifier que le bus existe
+    $vehicule = \App\Models\Vehicule::where('qr_code', $request->qr_code_bus)->first();
+
+    if (!$vehicule) {
+        return response()->json([
+            'message' => 'QR code du bus invalide'
+        ], 404);
+    }
+
+    // Trouver la réservation confirmée du passager connecté
+    $user = auth()->user();
+    $reservation = Reservation::where('statut', 'confirmee')
+        ->where(function($q) use ($user) {
+            $q->where('nom', $user->nom)
+              ->where('prenom', $user->prenom);
+        })
+        ->whereDate('date_reservation', today())
+        ->first();
+
+    if (!$reservation) {
+        return response()->json([
+            'message' => 'Aucune réservation confirmée trouvée pour aujourd\'hui'
+        ], 404);
+    }
+
+    $reservation->update([
+        'validee_montee' => true,
+        'vehicule_id'    => $vehicule->id,
+        'statut'         => 'en_cours'
+    ]);
+
+    return response()->json([
+        'message'     => 'Montée validée avec succès ! Bon voyage.',
+        'reservation' => $reservation
+    ]);
+}
+
+// Chauffeur scanne le QR du passager
+public function scannerPassager(Request $request)
+{
+    $request->validate([
+        'qr_code_passager' => 'required|string'
+    ]);
+
+    // Trouver le passager via son QR
+    $passager = \App\Models\User::where('qr_code', $request->qr_code_passager)->first();
+
+    if (!$passager) {
+        return response()->json([
+            'message' => 'QR code passager invalide'
+        ], 404);
+    }
+
+    // Trouver sa réservation confirmée du jour
+    $reservation = Reservation::where('statut', 'confirmee')
+        ->where('nom', $passager->nom)
+        ->where('prenom', $passager->prenom)
+        ->whereDate('date_reservation', today())
+        ->first();
+
+    if (!$reservation) {
+        return response()->json([
+            'message' => 'Aucune réservation confirmée pour ce passager aujourd\'hui'
+        ], 404);
+    }
+
+    $reservation->update([
+        'validee_montee' => true,
+        'chauffeur_id'   => auth()->id(),
+        'statut'         => 'en_cours'
+    ]);
+
+    return response()->json([
+        'message'     => 'Passager validé avec succès',
+        'passager'    => $passager->prenom . ' ' . $passager->nom,
+        'reservation' => $reservation
+    ]);
+}
 
     // Valider la montée (scan QR)
     public function validerMontee(Request $request)

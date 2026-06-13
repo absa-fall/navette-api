@@ -21,7 +21,6 @@ class RecapitulatifHebdoController extends Controller
             $debut = Carbon::parse($request->semaine_debut)->startOfDay();
             $fin   = Carbon::parse($request->semaine_fin)->endOfDay();
 
-            // Réservations terminées, montée validée, non vacataires
             $reservations = Reservation::whereBetween('date_reservation', [$debut, $fin])
                 ->where('validee_montee', true)
                 ->where('type_profil', '!=', 'vacataire')
@@ -33,34 +32,32 @@ class RecapitulatifHebdoController extends Controller
                 ], 422);
             }
 
-            // Calcul du montant total
             $montantTotal = $reservations->sum('montant_retenue');
 
-            // Détail par personne
             $detailParPersonne = [];
             foreach ($reservations as $r) {
                 $key = $r->nom . ' ' . $r->prenom;
                 if (!isset($detailParPersonne[$key])) {
                     $detailParPersonne[$key] = [
-                        'nom'           => $r->nom,
-                        'prenom'        => $r->prenom,
-                        'categorie'     => $r->categorie,
-                        'type_profil'   => $r->type_profil,
+                        'nom'            => $r->nom,
+                        'prenom'         => $r->prenom,
+                        'ufr'            => $r->ufr,
+                        'categorie'      => $r->categorie,
+                        'type_profil'    => $r->type_profil,
                         'nombre_trajets' => 0,
-                        'montant_total' => 0,
-                        'trajets'       => [],
+                        'montant_total'  => 0,
+                        'trajets'        => [],
                     ];
                 }
                 $detailParPersonne[$key]['nombre_trajets']++;
                 $detailParPersonne[$key]['montant_total'] += $r->montant_retenue;
                 $detailParPersonne[$key]['trajets'][] = [
                     'date'    => $r->date_reservation,
-                    'trajet'  => $r->ville_depart . ' → ' . $r->ville_arrivee,
+                    'trajet'  => $r->ville_depart . ' -> ' . $r->ville_arrivee,
                     'montant' => $r->montant_retenue,
                 ];
             }
 
-            // Sauvegarde en base
             $recap = RecapitulatifHebdo::create([
                 'sg_vr_id'        => auth()->id(),
                 'semaine_debut'   => $debut,
@@ -71,9 +68,9 @@ class RecapitulatifHebdoController extends Controller
             ]);
 
             return response()->json([
-                'message'            => 'Récapitulatif généré avec succès',
-                'recap'              => $recap,
-                'montant_total'      => $montantTotal,
+                'message'             => 'Récapitulatif généré avec succès',
+                'recap'               => $recap,
+                'montant_total'       => $montantTotal,
                 'detail_par_personne' => array_values($detailParPersonne),
                 'nombre_reservations' => $reservations->count(),
             ], 201);
@@ -115,6 +112,7 @@ class RecapitulatifHebdoController extends Controller
                 $detailParPersonne[$key] = [
                     'nom'            => $r->nom,
                     'prenom'         => $r->prenom,
+                    'ufr'            => $r->ufr,
                     'categorie'      => $r->categorie,
                     'type_profil'    => $r->type_profil,
                     'nombre_trajets' => 0,
@@ -126,7 +124,7 @@ class RecapitulatifHebdoController extends Controller
             $detailParPersonne[$key]['montant_total'] += $r->montant_retenue;
             $detailParPersonne[$key]['trajets'][] = [
                 'date'    => $r->date_reservation,
-                'trajet'  => $r->ville_depart . ' → ' . $r->ville_arrivee,
+                'trajet'  => $r->ville_depart . ' -> ' . $r->ville_arrivee,
                 'montant' => $r->montant_retenue,
             ];
         }
@@ -153,6 +151,20 @@ class RecapitulatifHebdoController extends Controller
         return response()->json([
             'message' => 'Récapitulatif validé avec succès',
             'recap'   => $recap
+        ]);
+    }
+
+    public function supprimerSelection(Request $request)
+    {
+        $request->validate([
+            'ids'   => 'required|array|min:1',
+            'ids.*' => 'integer',
+        ]);
+
+        $deleted = RecapitulatifHebdo::whereIn('id', $request->ids)->delete();
+
+        return response()->json([
+            'message' => $deleted . ' récapitulatif(s) supprimé(s) avec succès'
         ]);
     }
 }

@@ -29,17 +29,12 @@ Route::get('/validation/verifier/{qrCode}', [ReservationController::class, 'veri
 // ============================================
 
 Route::middleware('auth:sanctum')->group(function () {
-    // ============================================
-// SCAN QR
-// ============================================
-Route::middleware('auth:sanctum')->group(function () {
-    // Passager scanne le QR du bus
+
+    // Scan QR
     Route::post('/scan/bus', [ReservationController::class, 'scannerBus']);
-    // Chauffeur scanne le QR du passager
     Route::middleware('role:chauffeur')->group(function () {
         Route::post('/scan/passager', [ReservationController::class, 'scannerPassager']);
     });
-});
 
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -169,16 +164,17 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // ============================================
-    // RECAPITULATIFS — generer avant {id} ✅
+    // RECAPITULATIFS — routes fixes avant {id} 
     // ============================================
 
     Route::get('/recapitulatifs', [RecapitulatifHebdoController::class, 'index']);
 
     Route::middleware('role:sg_vr')->group(function () {
-        Route::post('/recapitulatifs/generer', [RecapitulatifHebdoController::class, 'generer']); // ✅ avant {id}
+        Route::post('/recapitulatifs/generer', [RecapitulatifHebdoController::class, 'generer']);
+        Route::delete('/recapitulatifs/supprimer-selection', [RecapitulatifHebdoController::class, 'supprimerSelection']); // ✅ avant {id}
         Route::patch('/recapitulatifs/{id}/valider', [RecapitulatifHebdoController::class, 'valider']);
     });
 
-    Route::get('/recapitulatifs/{id}', [RecapitulatifHebdoController::class, 'show']); // ✅ après generer
+    Route::get('/recapitulatifs/{id}', [RecapitulatifHebdoController::class, 'show']); 
 
 });

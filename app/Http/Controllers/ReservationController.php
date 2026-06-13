@@ -15,10 +15,12 @@ class ReservationController extends Controller
     private $tarifs = [
         'Dakar - Bambey' => 2000,
         'Bambey - Dakar' => 2000,
-        'Thies - Bambey' => 1000,
-        'Bambey - Thies' => 1000,
+        'Thies - Bambey' => 1500,
+        'Bambey - Thies' => 1500,
         'Bambey - Ngouniane' => 500,
         'Ngouniane - Bambey' => 500,
+        'Thies - Ngouniane' => 1000,
+         'Ngouniane - Thies' => 1000,
     ];
 
     // Créer une réservation
@@ -99,7 +101,7 @@ class ReservationController extends Controller
             Notification::create([
                 'user_id' => $passager->id,
                 'type'    => 'reservation_confirmee',
-                'titre'   => '✅ Réservation confirmée !',
+                'titre'   => ' Réservation confirmée !',
                 'message' => 'Votre réservation du ' . Carbon::parse($reservation->date_reservation)->format('d/m/Y') . ' (' . $reservation->ville_depart . ' → ' . $reservation->ville_arrivee . ') a été confirmée. Montez dans le bus et scannez le QR code.',
                 'lu'      => false,
             ]);
@@ -132,7 +134,7 @@ class ReservationController extends Controller
             Notification::create([
                 'user_id' => $passager->id,
                 'type'    => 'reservation_refusee',
-                'titre'   => '❌ Réservation refusée',
+                'titre'   => ' Réservation refusée',
                 'message' => 'Votre réservation du ' . Carbon::parse($reservation->date_reservation)->format('d/m/Y') . ' (' . $reservation->ville_depart . ' → ' . $reservation->ville_arrivee . ') a été refusée par le chauffeur.',
                 'lu'      => false,
             ]);
@@ -143,7 +145,22 @@ class ReservationController extends Controller
             'reservation' => $reservation
         ]);
     }
+public function supprimerMaReservation($id)
+{
+    $user = auth()->user();
+    $reservation = Reservation::findOrFail($id);
 
+    if ($reservation->nom !== $user->nom || $reservation->prenom !== $user->prenom) {
+        return response()->json(['message' => 'Non autorisé'], 403);
+    }
+
+    if (in_array($reservation->statut, ['en_cours', 'terminee'])) {
+        return response()->json(['message' => 'Impossible de supprimer une réservation en cours ou terminée'], 403);
+    }
+
+    $reservation->delete();
+    return response()->json(['message' => 'Réservation supprimée']);
+}
     // Passager scanne le QR du bus
     public function scannerBus(Request $request)
     {
@@ -226,7 +243,17 @@ $reservation->update([
             'reservation' => $reservation
         ]);
     }
+public function mesReservations()
+{
+    $user = auth()->user();
+    
+    $reservations = Reservation::where('nom', $user->nom)
+        ->where('prenom', $user->prenom)
+        ->orderBy('created_at', 'desc')
+        ->get();
 
+    return response()->json($reservations);
+}
     // Valider la montée (scan QR ancien système)
     public function validerMontee(Request $request)
     {

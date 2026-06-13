@@ -11,13 +11,10 @@ use Illuminate\Http\Request;
 
 class NotificationController extends Controller
 {
-    /**
-     * Liste les notifications de l'utilisateur connecté
-     */
     public function index()
     {
         $user = auth()->user();
-        
+
         if (!$user) {
             return response()->json(['message' => 'Non authentifié'], 401);
         }
@@ -30,22 +27,19 @@ class NotificationController extends Controller
         return response()->json($notifications);
     }
 
-    /**
-     * Crée une notification
-     */
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'type' => 'required|string',
-            'titre' => 'required|string',
-            'message' => 'required|string',
+            'type'              => 'required|string',
+            'titre'             => 'required|string',
+            'message'           => 'required|string',
             'destinataire_role' => 'nullable|string',
-            'ordre_id' => 'nullable|integer|exists:ordres_mission,id',
-            'motif_refus' => 'nullable|string',
+            'ordre_id'          => 'nullable|integer|exists:ordres_mission,id',
+            'motif_refus'       => 'nullable|string',
         ]);
 
         $destinataire = null;
-        
+
         if ($request->has('destinataire_role') && $request->destinataire_role) {
             $destinataire = User::where('role', $request->destinataire_role)->first();
         }
@@ -58,30 +52,25 @@ class NotificationController extends Controller
         }
 
         if (!$destinataire) {
-            return response()->json([
-                'message' => 'Aucun destinataire trouvé'
-            ], 404);
+            return response()->json(['message' => 'Aucun destinataire trouvé'], 404);
         }
 
         $notification = Notification::create([
-            'user_id' => $destinataire->id,
-            'type' => $validated['type'],
-            'titre' => $validated['titre'],
-            'message' => $validated['message'],
-            'ordre_id' => $validated['ordre_id'] ?? null,
+            'user_id'     => $destinataire->id,
+            'type'        => $validated['type'],
+            'titre'       => $validated['titre'],
+            'message'     => $validated['message'],
+            'ordre_id'    => $validated['ordre_id'] ?? null,
             'motif_refus' => $validated['motif_refus'] ?? null,
-            'lu' => false,
+            'lu'          => false,
         ]);
 
         return response()->json([
-            'message' => 'Notification créée',
+            'message'      => 'Notification créée',
             'notification' => $notification
         ], 201);
     }
 
-    /**
-     * Marquer comme lue
-     */
     public function marquerLu($id)
     {
         $notification = Notification::where('id', $id)
@@ -92,21 +81,16 @@ class NotificationController extends Controller
 
         return response()->json(['message' => 'Notification marquée comme lue']);
     }
-public function marquerToutesLues()
-{
-    Notification::where('user_id', auth()->id())
-        ->where('lu', false)
-        ->update([
-            'lu' => true
-        ]);
 
-    return response()->json([
-        'message' => 'Toutes les notifications ont été marquées comme lues'
-    ]);
-}
-    /**
-     * Supprimer
-     */
+    public function marquerToutesLues()
+    {
+        Notification::where('user_id', auth()->id())
+            ->where('lu', false)
+            ->update(['lu' => true]);
+
+        return response()->json(['message' => 'Toutes les notifications ont été marquées comme lues']);
+    }
+
     public function destroy($id)
     {
         $notification = Notification::where('id', $id)
@@ -117,17 +101,14 @@ public function marquerToutesLues()
 
         return response()->json(['message' => 'Notification supprimée']);
     }
-public function supprimerToutes()
-{
-    Notification::where('user_id', auth()->id())->delete();
 
-    return response()->json([
-        'message' => 'Toutes les notifications ont été supprimées'
-    ]);
-}
-    /**
-     * Sidebar avec compteurs
-     */
+    public function supprimerToutes()
+    {
+        Notification::where('user_id', auth()->id())->delete();
+
+        return response()->json(['message' => 'Toutes les notifications ont été supprimées']);
+    }
+
     public function sidebar()
     {
         try {
@@ -140,22 +121,22 @@ public function supprimerToutes()
             $role = $user->role;
 
             $notifications = [
-                'drhOrdres' => 0,
+                'drhOrdres'          => 0,
                 'drhOrdresApprouves' => 0,
-                'drhOrdresRejetes' => 0,
-                'sgDrhOrdres' => 0,
-                'sgDrhSignes' => 0,
-                'sgDrhTransmis' => 0,
+                'drhOrdresRejetes'   => 0,
+                'sgDrhOrdres'        => 0,
+                'sgDrhSignes'        => 0,
+                'sgDrhTransmis'      => 0,
                 'viceRecteurVoyages' => 0,
-                'viceRecteurRapports' => 0,
-                'trajetsAssignes' => 0,
-                'enAttente' => 0,
-                'trajetsEffectues' => 0,
-                'trajetsRefuses' => 0,
-                'mesDemandes' => 0,
-                'mesDemandesRejetees' => 0,
+                'viceRecteurRapports'=> 0,
+                'trajetsAssignes'    => 0,
+                'enAttente'          => 0,
+                'trajetsEffectues'   => 0,
+                'trajetsRefuses'     => 0,
+                'mesDemandes'        => 0,
+                'mesDemandesRejetees'=> 0,
                 'notificationsNonLues' => 0,
-                'refusChauffeur' => 0,
+                'refusChauffeur'     => 0,
             ];
 
             $notifications['notificationsNonLues'] = Notification::where('user_id', $user->id)
@@ -163,36 +144,41 @@ public function supprimerToutes()
                 ->count();
 
             if ($role === 'drh') {
-                $notifications['drhOrdres'] = OrdreMission::where('statut', 'en_attente_drh')->count();
+                $notifications['drhOrdres']          = OrdreMission::where('statut', 'en_attente_drh')->count();
                 $notifications['drhOrdresApprouves'] = OrdreMission::where('statut', 'execute')->count();
-                $notifications['drhOrdresRejetes'] = OrdreMission::where('statut', 'rejete')->count();
+                $notifications['drhOrdresRejetes']   = OrdreMission::where('statut', 'rejete')->count();
             }
 
             if ($role === 'sg_drh') {
-                $notifications['sgDrhOrdres'] = OrdreMission::where('statut', 'approuve_drh')->count();
-                $notifications['sgDrhSignes'] = OrdreMission::where('statut', 'execute')->count();
+                $notifications['sgDrhOrdres']   = OrdreMission::where('statut', 'approuve_drh')->count();
+                $notifications['sgDrhSignes']   = OrdreMission::where('statut', 'execute')->count();
                 $notifications['sgDrhTransmis'] = OrdreMission::where('statut', 'execute')->count();
             }
 
             if ($role === 'vice_recteur') {
-                $notifications['viceRecteurVoyages'] = VoyageEtude::where('statut', 'en_attente')->count();
+                $notifications['viceRecteurVoyages']  = VoyageEtude::where('statut', 'en_attente')->count();
                 $notifications['viceRecteurRapports'] = RapportVoyage::where('statut', 'soumis')->count();
             }
 
             if ($role === 'chauffeur') {
                 $notifications['trajetsAssignes'] = OrdreMission::where('chauffeur_id', $user->id)->count();
+
+                // ✅ Exclure les ordres refusés par le chauffeur
                 $notifications['enAttente'] = OrdreMission::where('chauffeur_id', $user->id)
                     ->where('statut', 'transmis_chauffeur')
+                    ->where(function ($q) {
+                        $q->whereNull('statut_chauffeur')
+                          ->orWhere('statut_chauffeur', 'en_attente');
+                    })
                     ->count();
+
                 $notifications['trajetsEffectues'] = OrdreMission::where('chauffeur_id', $user->id)
                     ->where('statut', 'execute')
                     ->count();
-                    $notifications['trajetsRefuses'] = OrdreMission::where(
-    'chauffeur_id',
-    $user->id
-)
-->where('statut', 'refuse_chauffeur')
-->count();
+
+                $notifications['trajetsRefuses'] = OrdreMission::where('chauffeur_id', $user->id)
+                    ->where('statut_chauffeur', 'refuse')
+                    ->count();
             }
 
             if ($role === 'ddl') {
@@ -203,7 +189,7 @@ public function supprimerToutes()
                 $notifications['mesDemandesRejetees'] = OrdreMission::where('ddl_id', $user->id)
                     ->where('statut', 'rejete')
                     ->count();
-                    
+
                 $notifications['refusChauffeur'] = Notification::where('user_id', $user->id)
                     ->where('type', 'refus_chauffeur')
                     ->where('lu', false)

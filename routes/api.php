@@ -77,12 +77,16 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
 
     Route::get('/reservations/chauffeur', [ReservationController::class, 'pourChauffeur']);
+    // Usager — ses propres réservations
+Route::get('/mes-reservations', [ReservationController::class, 'mesReservations']);
 
     Route::middleware('role:sg_vr')->group(function () {
         Route::get('/reservations/sgvr', [ReservationController::class, 'pourSGVR']);
         Route::delete('/reservations/{id}', [ReservationController::class, 'destroy']);
     });
-
+// Usager - ses propres réservations
+Route::get('/mes-reservations', [ReservationController::class, 'mesReservations']);
+Route::delete('/mes-reservations/{id}', [ReservationController::class, 'supprimerMaReservation']);
     // ============================================
     // ORDRES DE MISSION
     // ============================================

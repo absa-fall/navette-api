@@ -133,23 +133,46 @@ Route::delete('/mes-reservations/{id}', [ReservationController::class, 'supprime
 
     Route::patch('/reservations/{id}/montant', [ReservationController::class, 'updateMontant']);
 
-    // ============================================
-    // VOYAGES D'ETUDES — eligibilite avant {id}
-    // ============================================
+// ============================================
+// VOYAGES D'ETUDES
+// ============================================
 
-    Route::get('/voyages/eligibilite', [VoyageEtudeController::class, 'verifierEligibilite']);
-    Route::get('/voyages', [VoyageEtudeController::class, 'index']);
-    Route::get('/voyages/{id}', [VoyageEtudeController::class, 'show']);
+// Eligibilite — accessible a tous les authentifies
+Route::get('/voyages/eligibilite', [VoyageEtudeController::class, 'verifierEligibilite']);
 
-    Route::middleware('role:enseignant')->group(function () {
-        Route::post('/voyages', [VoyageEtudeController::class, 'store']);
-    });
+// Enseignant
+Route::middleware('role:enseignant')->group(function () {
+    Route::get('/mes-voyages-etudes', [VoyageEtudeController::class, 'mesVoyages']);
+    Route::post('/voyages-etudes/{id}/justificatifs', [VoyageEtudeController::class, 'soumettreJustificatifs']);
+    Route::patch('/voyages-etudes/beneficiaire/{id}/demander-autorisation', [VoyageEtudeController::class, 'demanderAutorisation']);
+});
 
-    Route::middleware('role:vice_recteur')->group(function () {
-        Route::patch('/voyages/{id}/approuver', [VoyageEtudeController::class, 'approuver']);
-        Route::patch('/voyages/{id}/rejeter', [VoyageEtudeController::class, 'rejeter']);
-    });
+// Chef de Departement
+Route::middleware('role:chef_departement')->group(function () {
+    Route::get('/voyages-etudes/dossiers', [VoyageEtudeController::class, 'dossiersDepartement']);
+    Route::patch('/voyages-etudes/beneficiaire/{id}/envoyer-vr', [VoyageEtudeController::class, 'envoyerAuVR']);
+    Route::patch('/voyages-etudes/beneficiaire/{id}/autorisation-sortie', [VoyageEtudeController::class, 'autorisationSortie']);
+});
 
+// Directeur UFR
+Route::middleware('role:directeur_ufr')->group(function () {
+    Route::patch('/voyages-etudes/beneficiaire/{id}/envoyer-autorisation-vr', [VoyageEtudeController::class, 'envoyerAutorisationVR']);
+});
+
+// Recteur
+Route::middleware('role:recteur')->group(function () {
+    Route::get('/voyages-etudes', [VoyageEtudeController::class, 'index']);
+    Route::patch('/voyages-etudes/{id}/signer-arrete', [VoyageEtudeController::class, 'signerArrete']);
+});
+
+// Vice-Recteur
+Route::middleware('role:vice_recteur')->group(function () {
+    Route::get('/voyages-etudes', [VoyageEtudeController::class, 'index']);
+    Route::get('/voyages-etudes/{id}', [VoyageEtudeController::class, 'show']);
+    Route::post('/voyages-etudes', [VoyageEtudeController::class, 'publierListe']);
+    Route::post('/voyages-etudes/{id}/liste-definitive', [VoyageEtudeController::class, 'publierListeDefinitive']);
+    Route::patch('/voyages-etudes/beneficiaire/{id}/approuver-autorisation', [VoyageEtudeController::class, 'approuverAutorisation']);
+});
     // ============================================
     // RAPPORTS
     // ============================================

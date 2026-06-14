@@ -9,51 +9,28 @@ class VoyageEtude extends Model
     protected $table = 'voyages_etudes';
 
     protected $fillable = [
-        'enseignant_id',
         'vice_recteur_id',
         'destination',
         'date_debut',
         'date_fin',
-        'objet',
-        'statut',
-        'commentaire_vr',
-        'ordre_mission_genere',
-        'date_limite_rapport',
+        'description',
+        'statut_liste',
+        'arrete_recteur',
     ];
 
     protected $casts = [
         'date_debut' => 'date',
         'date_fin' => 'date',
-        'date_limite_rapport' => 'date',
-        'ordre_mission_genere' => 'boolean',
+        'arrete_recteur' => 'boolean',
     ];
-
-    public function enseignant()
-    {
-        return $this->belongsTo(User::class, 'enseignant_id');
-    }
 
     public function viceRecteur()
     {
         return $this->belongsTo(User::class, 'vice_recteur_id');
     }
 
-    public function rapport()
+    public function beneficiaires()
     {
-        return $this->hasOne(RapportVoyage::class, 'voyage_id');
-    }
-
-    public static function estEligible(int $enseignantId): bool
-    {
-        $dernierVoyage = self::where('enseignant_id', $enseignantId)
-            ->where('statut', 'approuve')
-            ->latest()
-            ->first();
-
-        if (!$dernierVoyage) {
-            return true;
-        }
-
-        return $dernierVoyage->date_debut->diffInYears(now()) >= 2;
+        return $this->hasMany(VoyageEtudeBeneficiaire::class, 'voyage_id');
     }
 }

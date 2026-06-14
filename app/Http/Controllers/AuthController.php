@@ -37,11 +37,10 @@ class AuthController extends Controller
             ], 403);
         }
 
-        // Générer le QR automatiquement si l'usager n'en a pas
-        if ($user->role === 'usager' && !$user->qr_code) {
-            $user->update(['qr_code' => 'UADB-' . strtoupper(Str::random(8))]);
-        }
-
+       // Générer le QR automatiquement si l'usager n'en a pas
+if ($user->role === 'usager' && !$user->qr_code) {
+    $user->update(['qr_code' => 'UADB-' . strtoupper(Str::random(8))]);
+}
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
@@ -76,10 +75,10 @@ class AuthController extends Controller
             'role'        => 'required|in:ddl,drh,sg_drh,chauffeur,sg_vr,vice_recteur,admin,enseignant,usager',
         ]);
 
-        $qrCode = null;
-        if ($request->role === 'usager') {
-            $qrCode = 'UADB-' . strtoupper(Str::random(8));
-        }
+       $qrCode = null;
+if (in_array($request->role, ['usager', 'enseignant'])) {  // 
+    $qrCode = 'UADB-' . strtoupper(Str::random(8));
+}
 
         $user = User::create([
             'nom'         => $request->nom,
@@ -110,10 +109,23 @@ class AuthController extends Controller
         ]);
     }
 
-    public function me(Request $request)
-    {
-        return response()->json([
-            'user' => $request->user()
-        ]);
-    }
+   public function me(Request $request)
+{
+    $user = $request->user();
+    
+    return response()->json([
+        'user' => [
+            'id'          => $user->id,
+            'nom'         => $user->nom,
+            'prenom'      => $user->prenom,
+            'email'       => $user->email,
+            'role'        => $user->role,
+            'type_profil' => $user->type_profil,
+            'statut'      => $user->statut,
+            'ufr'         => $user->ufr,
+            'qr_code'     => $user->qr_code,
+        ]
+    ]);
+}
+    
 }

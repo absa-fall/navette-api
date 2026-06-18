@@ -23,7 +23,9 @@ class User extends Authenticatable
     'ufr',
     'role',
     'is_active',
-    'qr_code', // ajout
+    'qr_code', 
+    'nationalite',
+'grade_fonction',
 ];
 
     protected $hidden = [

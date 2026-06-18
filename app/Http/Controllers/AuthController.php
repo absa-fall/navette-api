@@ -62,37 +62,39 @@ if ($user->role === 'usager' && !$user->qr_code) {
 
     public function register(Request $request)
     {
-        $request->validate([
-            'nom'         => 'required|string|max:100',
-            'prenom'      => 'required|string|max:100',
-            'email'       => 'required|email|unique:users,email',
-            'password'    => 'required|min:6',
-            'tel'         => 'nullable|string',
-            'matricule'   => 'nullable|string|unique:users,matricule',
-            'type_profil' => 'nullable|in:PER,PATS,ATR',
-            'statut'      => 'nullable|in:permanent,non_permanent,contractuel,vacataire',
-            'ufr'         => 'nullable|in:SATIC,SDD,ECOMIJ,ISFAR',
-            'role'        => 'required|in:ddl,drh,sg_drh,chauffeur,sg_vr,vice_recteur,admin,enseignant,usager',
-        ]);
+       $request->validate([
+    'nom'           => 'required|string|max:100',
+    'prenom'        => 'required|string|max:100',
+    'email'         => 'required|email|unique:users,email',
+    'password'      => 'required|min:6',
+    'tel'           => 'nullable|string',
+    'matricule'     => 'nullable|string|unique:users,matricule',
+    'type_profil'   => 'nullable|in:PER,PATS,ATR',
+    'statut'        => 'nullable|in:permanent,non_permanent,contractuel,vacataire',
+    'ufr'           => 'nullable|in:SATIC,SDD,ECOMIJ,ISFAR',
+    'role'          => 'required|in:ddl,drh,sg_drh,chauffeur,sg_vr,vice_recteur,admin,enseignant,usager',
+    'date_embauche' => 'nullable|date',
+]);
 
        $qrCode = null;
 if (in_array($request->role, ['usager', 'enseignant'])) {  // 
     $qrCode = 'UADB-' . strtoupper(Str::random(8));
 }
 
-        $user = User::create([
-            'nom'         => $request->nom,
-            'prenom'      => $request->prenom,
-            'email'       => strtolower(trim($request->email)),
-            'password'    => Hash::make($request->password),
-            'tel'         => $request->tel,
-            'matricule'   => $request->matricule,
-            'type_profil' => $request->type_profil,
-            'statut'      => $request->statut,
-            'ufr'         => $request->ufr,
-            'role'        => $request->role,
-            'qr_code'     => $qrCode,
-        ]);
+      $user = User::create([
+    'nom'           => $request->nom,
+    'prenom'        => $request->prenom,
+    'email'         => strtolower(trim($request->email)),
+    'password'      => Hash::make($request->password),
+    'tel'           => $request->tel,
+    'matricule'     => $request->matricule,
+    'type_profil'   => $request->type_profil,
+    'statut'        => $request->statut,
+    'ufr'           => $request->ufr,
+    'role'          => $request->role,
+    'qr_code'       => $qrCode,
+    'date_embauche' => $request->date_embauche,
+]);
 
         return response()->json([
             'message' => 'Compte créé avec succès',

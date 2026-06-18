@@ -99,4 +99,14 @@ class UserController extends Controller
         $drhs = User::where('role', 'drh')->get();
         return response()->json($drhs);
     }
+    public function enseignantsPermanents()
+{
+    $enseignants = User::where('role', 'enseignant')
+        ->where('statut', 'permanent')
+        ->where('is_active', true)
+        ->get();
+
+    return response()->json($enseignants);
+}
+
 }

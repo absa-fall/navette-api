@@ -11,7 +11,6 @@ class VoyageEtudeBeneficiaire extends Model
     protected $fillable = [
         'voyage_id',
         'enseignant_id',
-        'justificatif_pdf',
         'statut_justificatif',
         'dans_liste_definitive',
         'statut_autorisation',
@@ -30,5 +29,15 @@ class VoyageEtudeBeneficiaire extends Model
     public function enseignant()
     {
         return $this->belongsTo(User::class, 'enseignant_id');
+    }
+
+    public function justificatifs()
+    {
+        return $this->hasMany(VoyageEtudeJustificatif::class, 'beneficiaire_id');
+    }
+
+    public function avis()
+    {
+        return $this->hasMany(VoyageEtudeAvis::class, 'beneficiaire_id');
     }
 }

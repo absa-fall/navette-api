@@ -16,7 +16,7 @@ class NotificationController extends Controller
         $user = auth()->user();
 
         if (!$user) {
-            return response()->json(['message' => 'Non authentifié'], 401);
+            return response()->json(['message' => 'Non authentifie'], 401);
         }
 
         $notifications = Notification::where('user_id', $user->id)
@@ -52,7 +52,7 @@ class NotificationController extends Controller
         }
 
         if (!$destinataire) {
-            return response()->json(['message' => 'Aucun destinataire trouvé'], 404);
+            return response()->json(['message' => 'Aucun destinataire trouve'], 404);
         }
 
         $notification = Notification::create([
@@ -66,7 +66,7 @@ class NotificationController extends Controller
         ]);
 
         return response()->json([
-            'message'      => 'Notification créée',
+            'message'      => 'Notification creee',
             'notification' => $notification
         ], 201);
     }
@@ -79,7 +79,7 @@ class NotificationController extends Controller
 
         $notification->update(['lu' => true]);
 
-        return response()->json(['message' => 'Notification marquée comme lue']);
+        return response()->json(['message' => 'Notification marquee comme lue']);
     }
 
     public function marquerToutesLues()
@@ -88,7 +88,7 @@ class NotificationController extends Controller
             ->where('lu', false)
             ->update(['lu' => true]);
 
-        return response()->json(['message' => 'Toutes les notifications ont été marquées comme lues']);
+        return response()->json(['message' => 'Toutes les notifications ont ete marquees comme lues']);
     }
 
     public function destroy($id)
@@ -99,14 +99,14 @@ class NotificationController extends Controller
 
         $notification->delete();
 
-        return response()->json(['message' => 'Notification supprimée']);
+        return response()->json(['message' => 'Notification supprimee']);
     }
 
     public function supprimerToutes()
     {
         Notification::where('user_id', auth()->id())->delete();
 
-        return response()->json(['message' => 'Toutes les notifications ont été supprimées']);
+        return response()->json(['message' => 'Toutes les notifications ont ete supprimees']);
     }
 
     public function sidebar()
@@ -115,33 +115,38 @@ class NotificationController extends Controller
             $user = auth()->user();
 
             if (!$user) {
-                return response()->json(['message' => 'Non authentifié'], 401);
+                return response()->json(['message' => 'Non authentifie'], 401);
             }
 
             $role = $user->role;
 
             $notifications = [
-                'drhOrdres'          => 0,
-                'drhOrdresApprouves' => 0,
-                'drhOrdresRejetes'   => 0,
-                'sgDrhOrdres'        => 0,
-                'sgDrhSignes'        => 0,
-                'sgDrhTransmis'      => 0,
-                'viceRecteurVoyages' => 0,
-                'viceRecteurRapports'=> 0,
-                'trajetsAssignes'    => 0,
-                'enAttente'          => 0,
-                'trajetsEffectues'   => 0,
-                'trajetsRefuses'     => 0,
-                'mesDemandes'        => 0,
-                'mesDemandesRejetees'=> 0,
+                'drhOrdres'            => 0,
+                'drhOrdresApprouves'   => 0,
+                'drhOrdresRejetes'     => 0,
+                'sgDrhOrdres'          => 0,
+                'sgDrhSignes'          => 0,
+                'sgDrhTransmis'        => 0,
+                'viceRecteurVoyages'   => 0,
+                'viceRecteurRapports'  => 0,
+                'trajetsAssignes'      => 0,
+                'enAttente'            => 0,
+                'trajetsEffectues'     => 0,
+                'trajetsRefuses'       => 0,
+                'mesDemandes'          => 0,
+                'mesDemandesRejetees'  => 0,
                 'notificationsNonLues' => 0,
-                'refusChauffeur'     => 0,
+                'refusChauffeur'       => 0,
             ];
 
             $notifications['notificationsNonLues'] = Notification::where('user_id', $user->id)
                 ->where('lu', false)
                 ->count();
+
+            // Roles sans compteurs specifiques
+            if (in_array($role, ['chef_departement', 'directeur_ufr', 'recteur', 'usager', 'admin', 'sg_vr', 'enseignant'])) {
+                return response()->json($notifications);
+            }
 
             if ($role === 'drh') {
                 $notifications['drhOrdres']          = OrdreMission::where('statut', 'en_attente_drh')->count();
@@ -156,14 +161,13 @@ class NotificationController extends Controller
             }
 
             if ($role === 'vice_recteur') {
-                $notifications['viceRecteurVoyages']  = VoyageEtude::where('statut', 'en_attente')->count();
+                $notifications['viceRecteurVoyages']  = VoyageEtude::where('statut_liste', 'publiee')->count();
                 $notifications['viceRecteurRapports'] = RapportVoyage::where('statut', 'soumis')->count();
             }
 
             if ($role === 'chauffeur') {
                 $notifications['trajetsAssignes'] = OrdreMission::where('chauffeur_id', $user->id)->count();
 
-                // ✅ Exclure les ordres refusés par le chauffeur
                 $notifications['enAttente'] = OrdreMission::where('chauffeur_id', $user->id)
                     ->where('statut', 'transmis_chauffeur')
                     ->where(function ($q) {

@@ -39,9 +39,27 @@ Route::middleware('auth:sanctum')->group(function () {
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
+
+    // ============================================
+    // RAPPORTS DE VOYAGE
+    // ============================================
+    Route::get('/rapports', [RapportVoyageController::class, 'index']);
+    Route::get('/rapports/{id}', [RapportVoyageController::class, 'show']);
     Route::get('/rapports/{id}/download', [RapportVoyageController::class, 'download']);
 
-    // Notifications — routes fixes avant {id}
+    Route::middleware('role:enseignant')->group(function () {
+        Route::post('/rapports', [RapportVoyageController::class, 'store']);
+        Route::post('/rapports/{id}/resoumettre', [RapportVoyageController::class, 'resoumettre']);
+    });
+
+    Route::middleware('role:vice_recteur')->group(function () {
+        Route::patch('/rapports/{id}/valider', [RapportVoyageController::class, 'valider']);
+        Route::patch('/rapports/{id}/rejeter', [RapportVoyageController::class, 'rejeter']);
+    });
+
+    // ============================================
+    // NOTIFICATIONS
+    // ============================================
     Route::get('/notifications/sidebar', [NotificationController::class, 'sidebar']);
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::post('/notifications', [NotificationController::class, 'store']);
@@ -50,7 +68,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/notifications/{id}/lu', [NotificationController::class, 'marquerLu']);
     Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 
-    // Users (admin)
+    // ============================================
+    // USERS (admin)
+    // ============================================
     Route::middleware('role:admin')->group(function () {
         Route::get('/users', [UserController::class, 'index']);
         Route::post('/users', [UserController::class, 'store']);
@@ -61,8 +81,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/chauffeurs', [UserController::class, 'chauffeurs']);
     Route::get('/drhs', [UserController::class, 'drhs']);
+    Route::get('/enseignants-permanents', [UserController::class, 'enseignantsPermanents']);
 
-    // Vehicules — disponibles avant {id}
+    // ============================================
+    // VEHICULES
+    // ============================================
     Route::get('/vehicules/disponibles', [VehiculeController::class, 'disponibles']);
     Route::get('/vehicules', [VehiculeController::class, 'index']);
     Route::get('/vehicules/{id}', [VehiculeController::class, 'show']);
@@ -75,23 +98,20 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // RESERVATIONS
     // ============================================
-
     Route::get('/reservations/chauffeur', [ReservationController::class, 'pourChauffeur']);
-    // Usager — ses propres réservations
-Route::get('/mes-reservations', [ReservationController::class, 'mesReservations']);
 
     Route::middleware('role:sg_vr')->group(function () {
         Route::get('/reservations/sgvr', [ReservationController::class, 'pourSGVR']);
         Route::delete('/reservations/{id}', [ReservationController::class, 'destroy']);
     });
-// Usager - ses propres réservations
-Route::get('/mes-reservations', [ReservationController::class, 'mesReservations']);
-Route::delete('/mes-reservations/{id}', [ReservationController::class, 'supprimerMaReservation']);
+
+    Route::get('/mes-reservations', [ReservationController::class, 'mesReservations']);
+    Route::delete('/mes-reservations/{id}', [ReservationController::class, 'supprimerMaReservation']);
+    Route::patch('/reservations/{id}/montant', [ReservationController::class, 'updateMontant']);
+
     // ============================================
     // ORDRES DE MISSION
     // ============================================
-
-    // DDL
     Route::middleware('role:ddl')->group(function () {
         Route::post('/ordres-mission', [OrdreMissionController::class, 'store']);
         Route::get('/mes-ordres', [OrdreMissionController::class, 'mesOrdres']);
@@ -99,19 +119,16 @@ Route::delete('/mes-reservations/{id}', [ReservationController::class, 'supprime
         Route::put('/ordres-mission/{id}', [OrdreMissionController::class, 'update']);
     });
 
-    // DRH
     Route::middleware('role:drh')->group(function () {
         Route::patch('/ordres-mission/{id}/approuver-drh', [OrdreMissionController::class, 'approuverDRH']);
         Route::patch('/ordres-mission/{id}/rejeter-drh', [OrdreMissionController::class, 'rejeterDRH']);
     });
 
-    // SG DRH
     Route::middleware('role:sg_drh')->group(function () {
         Route::get('/ordres-mission-a-signer', [OrdreMissionController::class, 'aSigner']);
         Route::patch('/ordres-mission/{id}/signer', [OrdreMissionController::class, 'signer']);
     });
 
-    // Chauffeur
     Route::middleware('role:chauffeur')->group(function () {
         Route::get('/ordres-mission-chauffeur', [OrdreMissionController::class, 'pourChauffeur']);
         Route::post('/ordres-mission/{id}/accepter', [OrdreMissionController::class, 'accepterMission']);
@@ -121,87 +138,67 @@ Route::delete('/mes-reservations/{id}', [ReservationController::class, 'supprime
         Route::patch('/reservations/{id}/refuser', [ReservationController::class, 'refuser']);
     });
 
-    // Tous les authentifiés
     Route::get('/ordres-mission', [OrdreMissionController::class, 'index']);
     Route::get('/ordres-mission/{id}', [OrdreMissionController::class, 'show']);
     Route::delete('/ordres-mission/{id}/historique', [OrdreMissionController::class, 'supprimerHistorique']);
     Route::post('/ordres-mission/{id}/masquer', [OrdreMissionController::class, 'supprimerHistorique']);
 
     // ============================================
-    // REGISTRES
+    // VOYAGES D'ÉTUDES — ordre critique : routes fixes AVANT {id}
     // ============================================
 
-    Route::patch('/reservations/{id}/montant', [ReservationController::class, 'updateMontant']);
+    // Éligibilité — tous les authentifiés
+    Route::get('/voyages/eligibilite', [VoyageEtudeController::class, 'verifierEligibilite']);
 
-// ============================================
-// VOYAGES D'ETUDES
-// ============================================
-
-// Eligibilite — accessible a tous les authentifies
-Route::get('/voyages/eligibilite', [VoyageEtudeController::class, 'verifierEligibilite']);
-
-// Enseignant
-Route::middleware('role:enseignant')->group(function () {
-    Route::get('/mes-voyages-etudes', [VoyageEtudeController::class, 'mesVoyages']);
-    Route::post('/voyages-etudes/{id}/justificatifs', [VoyageEtudeController::class, 'soumettreJustificatifs']);
-    Route::patch('/voyages-etudes/beneficiaire/{id}/demander-autorisation', [VoyageEtudeController::class, 'demanderAutorisation']);
-});
-
-// Chef de Departement
-Route::middleware('role:chef_departement')->group(function () {
-    Route::get('/voyages-etudes/dossiers', [VoyageEtudeController::class, 'dossiersDepartement']);
-    Route::patch('/voyages-etudes/beneficiaire/{id}/envoyer-vr', [VoyageEtudeController::class, 'envoyerAuVR']);
-    Route::patch('/voyages-etudes/beneficiaire/{id}/autorisation-sortie', [VoyageEtudeController::class, 'autorisationSortie']);
-});
-
-// Directeur UFR
-Route::middleware('role:directeur_ufr')->group(function () {
-    Route::patch('/voyages-etudes/beneficiaire/{id}/envoyer-autorisation-vr', [VoyageEtudeController::class, 'envoyerAutorisationVR']);
-});
-
-// Recteur
-Route::middleware('role:recteur')->group(function () {
-    Route::get('/voyages-etudes', [VoyageEtudeController::class, 'index']);
-    Route::patch('/voyages-etudes/{id}/signer-arrete', [VoyageEtudeController::class, 'signerArrete']);
-});
-
-// Vice-Recteur
-Route::middleware('role:vice_recteur')->group(function () {
-    Route::get('/voyages-etudes', [VoyageEtudeController::class, 'index']);
-    Route::get('/voyages-etudes/{id}', [VoyageEtudeController::class, 'show']);
-    Route::post('/voyages-etudes', [VoyageEtudeController::class, 'publierListe']);
-    Route::post('/voyages-etudes/{id}/liste-definitive', [VoyageEtudeController::class, 'publierListeDefinitive']);
-    Route::patch('/voyages-etudes/beneficiaire/{id}/approuver-autorisation', [VoyageEtudeController::class, 'approuverAutorisation']);
-});
-    // ============================================
-    // RAPPORTS
-    // ============================================
-
-    Route::get('/rapports', [RapportVoyageController::class, 'index']);
-    Route::get('/rapports/{id}', [RapportVoyageController::class, 'show']);
-
+    // --- ENSEIGNANT ---
     Route::middleware('role:enseignant')->group(function () {
-        Route::post('/rapports', [RapportVoyageController::class, 'store']);
-        Route::patch('/rapports/{id}/resoumettre', [RapportVoyageController::class, 'resoumettre']);
+        Route::get('/mes-voyages-etudes', [VoyageEtudeController::class, 'mesVoyages']);
+        Route::post('/voyages-etudes/beneficiaire/{id}/justificatifs', [VoyageEtudeController::class, 'soumettreJustificatifs']);
+        Route::post('/voyages-etudes/beneficiaire/{id}/justificatif-rapport', [VoyageEtudeController::class, 'justificatifDepuisRapport']);
+        Route::patch('/voyages-etudes/beneficiaire/{id}/demander-autorisation', [VoyageEtudeController::class, 'demanderAutorisation']);
     });
 
+    // --- CHEF DE DÉPARTEMENT + DIRECTEUR UFR — route partagée ---
+    Route::middleware('role:chef_departement,directeur_ufr,recteur')->group(function () {
+        Route::get('/voyages-etudes/dossiers-departement', [VoyageEtudeController::class, 'dossiersDepartement']);
+    });
+
+    // --- CHEF DE DÉPARTEMENT uniquement ---
+    Route::middleware('role:chef_departement')->group(function () {
+        Route::post('/voyages-etudes/{id}/notifier-enseignants', [VoyageEtudeController::class, 'notifierEnseignants']);
+        Route::patch('/voyages-etudes/beneficiaire/{id}/envoyer-vr', [VoyageEtudeController::class, 'envoyerAuVR']);
+        Route::patch('/voyages-etudes/beneficiaire/{id}/autorisation-sortie', [VoyageEtudeController::class, 'autorisationSortie']);
+    });
+
+    // --- DIRECTEUR UFR uniquement ---
+    Route::middleware('role:directeur_ufr')->group(function () {
+        Route::patch('/voyages-etudes/beneficiaire/{id}/envoyer-autorisation-recteur', [VoyageEtudeController::class, 'envoyerAutorisationRecteur']);
+    });
+
+    // --- VR + COMMISSION — dossiers à valider (AVANT le groupe VR seul) ---
+    Route::middleware('role:vice_recteur,commission')->group(function () {
+        Route::get('/voyages-etudes/dossiers-a-valider', [VoyageEtudeController::class, 'dossiersAValider']);
+        Route::patch('/voyages-etudes/beneficiaire/{id}/avis', [VoyageEtudeController::class, 'donnerAvis']);
+    });
+
+    // --- RECTEUR + VICE-RECTEUR — route partagée index ---
+    Route::middleware('role:recteur,vice_recteur')->group(function () {
+        Route::get('/voyages-etudes', [VoyageEtudeController::class, 'index']);
+    });
+
+    // --- RECTEUR ---
+    Route::middleware('role:recteur')->group(function () {
+        Route::patch('/voyages-etudes/{id}/signer-arrete', [VoyageEtudeController::class, 'signerArrete']);
+        Route::patch('/voyages-etudes/beneficiaire/{id}/approuver-autorisation-recteur', [VoyageEtudeController::class, 'approuverAutorisationRecteur']);
+    });
+
+    // --- VICE-RECTEUR SEUL — routes avec {id} EN DERNIER pour éviter conflits ---
     Route::middleware('role:vice_recteur')->group(function () {
-        Route::patch('/rapports/{id}/valider', [RapportVoyageController::class, 'valider']);
-        Route::patch('/rapports/{id}/rejeter', [RapportVoyageController::class, 'rejeter']);
+        Route::post('/voyages-etudes', [VoyageEtudeController::class, 'publierListe']);
+        Route::post('/voyages-etudes/{id}/ajouter-beneficiaire', [VoyageEtudeController::class, 'ajouterBeneficiaire']);
+        Route::post('/voyages-etudes/{id}/liste-definitive', [VoyageEtudeController::class, 'publierListeDefinitive']);
+        Route::post('/voyages-etudes/{id}/notifier-beneficiaires', [VoyageEtudeController::class, 'notifierBeneficiairesDefinitifs']);
+        Route::get('/voyages-etudes/{id}', [VoyageEtudeController::class, 'show']);
     });
-
-    // ============================================
-    // RECAPITULATIFS — routes fixes avant {id} 
-    // ============================================
-
-    Route::get('/recapitulatifs', [RecapitulatifHebdoController::class, 'index']);
-
-    Route::middleware('role:sg_vr')->group(function () {
-        Route::post('/recapitulatifs/generer', [RecapitulatifHebdoController::class, 'generer']);
-        Route::delete('/recapitulatifs/supprimer-selection', [RecapitulatifHebdoController::class, 'supprimerSelection']); // ✅ avant {id}
-        Route::patch('/recapitulatifs/{id}/valider', [RecapitulatifHebdoController::class, 'valider']);
-    });
-
-    Route::get('/recapitulatifs/{id}', [RecapitulatifHebdoController::class, 'show']); 
 
 });

@@ -276,4 +276,24 @@ class AutorisationAbsenceController extends Controller
 
         return response()->json(['message' => 'Demande supprimee']);
     }
+    // ============================================
+// RECTEUR — Envoyer autorisation par email à l'enseignant
+// ============================================
+public function envoyerEmail($id)
+{
+    $autorisation = AutorisationAbsence::with([
+        'enseignant', 'chefDepartement', 'directeurUfr', 'recteur'
+    ])->findOrFail($id);
+
+    if (!$autorisation->enseignant || !$autorisation->enseignant->email) {
+        return response()->json(['message' => 'Email de l\'enseignant introuvable'], 400);
+    }
+
+    \Mail::to($autorisation->enseignant->email)
+        ->send(new \App\Mail\AutorisationAbsenceMail($autorisation));
+
+    $autorisation->update(['date_envoi_email' => now()]);
+
+    return response()->json(['message' => 'Autorisation envoyee par email avec succes']);
+}
 }

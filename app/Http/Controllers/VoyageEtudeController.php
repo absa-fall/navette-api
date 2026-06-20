@@ -86,16 +86,27 @@ class VoyageEtudeController extends Controller
     // ============================================
     // ENSEIGNANT — Voir ses voyages
     // ============================================
-  public function mesVoyages()
+ public function mesVoyages()
 {
     $user = auth()->user();
 
     $beneficiaires = VoyageEtudeBeneficiaire::where('enseignant_id', $user->id)
+        ->where('masque_enseignant', false)
         ->with(['voyage.viceRecteur', 'autorisationAbsence'])
         ->latest()
         ->get();
 
     return response()->json($beneficiaires);
+}
+public function masquerVoyage($beneficiaireId)
+{
+    $beneficiaire = VoyageEtudeBeneficiaire::where('id', $beneficiaireId)
+        ->where('enseignant_id', auth()->id())
+        ->firstOrFail();
+
+    $beneficiaire->update(['masque_enseignant' => true]);
+
+    return response()->json(['message' => 'Voyage masque de votre historique']);
 }
 
     // ============================================
@@ -176,7 +187,7 @@ class VoyageEtudeController extends Controller
     return response()->json($dossiers);
 }
     
-}
+
 
     // ============================================
     // CHEF DE DÉPARTEMENT — Transmettre dossier au VR + Commission
@@ -294,23 +305,23 @@ public function destroyBeneficiaire($id)
         try {
             $vr = User::where('role', 'vice_recteur')->first();
             if ($vr) {
-                if ($request->avis === 'valide') {
-                    Notification::create([
-                        'user_id' => $vr->id,
-                        'type'    => 'dossier_valide_commission',
-                        'titre'   => 'Dossier valide par la commission',
-                        'message' => 'La commission a valide le dossier de ' . $nomEns . ' pour le voyage a ' . $destination . '. Veuillez a votre tour valider ce dossier.' . ($request->commentaire ? ' Commentaire : ' . $request->commentaire : ''),
-                        'lu'      => false,
-                    ]);
-                } else {
-                    Notification::create([
-                        'user_id' => $vr->id,
-                        'type'    => 'avis_commission',
-                        'titre'   => 'Dossier rejete par la commission',
-                        'message' => 'La commission a rejete le dossier de ' . $nomEns . ' pour le voyage a ' . $destination . '.' . ($request->commentaire ? ' Raison : ' . $request->commentaire : ''),
-                        'lu'      => false,
-                    ]);
-                }
+               if ($request->avis === 'valide') {
+    Notification::create([
+        'user_id' => $vr->id,
+        'type'    => 'dossier_valide_commission',
+        'titre'   => 'Dossier valide par la commission — Transmis au VR',
+        'message' => 'La commission a valide le dossier de ' . $nomEns . ' pour le voyage a ' . $destination . ' et l\'a transmis pour votre validation finale.' . ($request->commentaire ? ' Commentaire : ' . $request->commentaire : ''),
+        'lu'      => false,
+    ]);
+} else {
+    Notification::create([
+        'user_id' => $vr->id,
+        'type'    => 'avis_commission',
+        'titre'   => 'Dossier rejete par la commission — Transmis au VR',
+        'message' => 'La commission a rejete le dossier de ' . $nomEns . ' pour le voyage a ' . $destination . ' et l\'a transmis pour votre information.' . ($request->commentaire ? ' Raison : ' . $request->commentaire : ''),
+        'lu'      => false,
+    ]);
+}
             }
         } catch (\Exception $e) {
             \Log::error('Notification avis commission: ' . $e->getMessage());

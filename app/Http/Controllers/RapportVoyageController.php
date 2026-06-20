@@ -210,4 +210,25 @@ public function download($id)
             'rapport' => $rapport
         ]);
     }
+    // Enseignant supprime un rapport de son historique (suppression réelle)
+public function supprimerHistorique($id)
+{
+    $rapport = RapportVoyage::findOrFail($id);
+
+    if ($rapport->enseignant_id !== auth()->id()) {
+        return response()->json(['message' => 'Action non autorisée'], 403);
+    }
+
+    // Supprimer le fichier physique s'il existe
+    if ($rapport->fichier_pdf) {
+        \Storage::disk('public')->delete($rapport->fichier_pdf);
+    }
+
+    // Supprimer aussi le justificatif lié si présent
+    \App\Models\VoyageEtudeJustificatif::where('fichier_pdf', $rapport->fichier_pdf)->delete();
+
+    $rapport->delete();
+
+    return response()->json(['message' => 'Rapport supprimé définitivement']);
+}
 }

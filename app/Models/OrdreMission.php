@@ -8,37 +8,41 @@ class OrdreMission extends Model
 {
     protected $table = 'ordres_mission';
 
-    protected $fillable = [
-        'ddl_id',
-        'drh_id',
-        'sg_drh_id',
-        'chauffeur_id',
-        'vehicule_id',
-        // Champs ordre de mission
-        'chauffeur_nom',
-        'chauffeur_prenom',
-        'nationalite',
-        'grade_fonction',
-        'destination',
-        'objet_mission',
-        'moyen_transport',
-        'date_depart',
-        'heure_depart',
-        'date_retour',
-        'frais_transport',
-        'indemnite_deplacement',
-        'statut_chauffeur',
-        // Champs calcul et statut
-        'trajet',
-        'trajet_autre',
-        'montant_trajet',
-        'motif',
-        'statut',
-        'signature_sg_drh',
-        'date_signature',
-        'commentaire_rejet',
-    ];
-
+   protected $fillable = [
+    'ddl_id',
+    'drh_id',
+    'sg_drh_id',
+    'chauffeur_id',
+    'vehicule_id',
+    // Champs ordre de mission
+    'chauffeur_nom',
+    'chauffeur_prenom',
+    'nationalite',
+    'grade_fonction',
+    'destination',
+    'objet_mission',
+    'moyen_transport',
+    'date_depart',
+    'heure_depart',
+    'date_retour',
+    'frais_transport',
+    'indemnite_deplacement',
+    'statut_chauffeur',
+    // Champs calcul et statut
+    'trajet',
+    'trajet_autre',
+    'montant_trajet',
+    'motif',
+    'statut',
+    'signature_sg_drh',
+    'date_signature',
+    'commentaire_rejet',
+    // Champs masquage historique
+    'masque_ddl',
+    'masque_drh',
+    'masque_sg_drh',
+    'masque_chauffeur',
+];
     protected $casts = [
         'signature_sg_drh' => 'boolean',
         'date_depart' => 'date',

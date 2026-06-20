@@ -50,12 +50,13 @@ class RecapitulatifHebdoController extends Controller
                     ];
                 }
                 $detailParPersonne[$key]['nombre_trajets']++;
-                $detailParPersonne[$key]['montant_total'] += $r->montant_retenue;
-                $detailParPersonne[$key]['trajets'][] = [
-                    'date'    => $r->date_reservation,
-                    'trajet'  => $r->ville_depart . ' -> ' . $r->ville_arrivee,
-                    'montant' => $r->montant_retenue,
-                ];
+$detailParPersonne[$key]['montant_total'] += $r->montant_retenue;
+$detailParPersonne[$key]['trajets'][] = [
+    'date'        => $r->date_reservation,
+    'trajet'      => $r->ville_depart . ' -> ' . $r->ville_arrivee,
+    'type_trajet' => $r->type_trajet,
+    'montant'     => $r->montant_retenue,
+];
             }
 
             $recap = RecapitulatifHebdo::create([
@@ -120,13 +121,14 @@ class RecapitulatifHebdoController extends Controller
                     'trajets'        => [],
                 ];
             }
-            $detailParPersonne[$key]['nombre_trajets']++;
-            $detailParPersonne[$key]['montant_total'] += $r->montant_retenue;
-            $detailParPersonne[$key]['trajets'][] = [
-                'date'    => $r->date_reservation,
-                'trajet'  => $r->ville_depart . ' -> ' . $r->ville_arrivee,
-                'montant' => $r->montant_retenue,
-            ];
+           $detailParPersonne[$key]['nombre_trajets']++;
+$detailParPersonne[$key]['montant_total'] += $r->montant_retenue;
+$detailParPersonne[$key]['trajets'][] = [
+    'date'        => $r->date_reservation,
+    'trajet'      => $r->ville_depart . ' -> ' . $r->ville_arrivee,
+    'type_trajet' => $r->type_trajet,
+    'montant'     => $r->montant_retenue,
+];
         }
 
         return response()->json([

@@ -9,23 +9,24 @@ class Reservation extends Model
 {
     use HasFactory;
 
-    protected $fillable = [
-        'nom',
-        'prenom',
-        'categorie',
-        'type_profil',
-        'ufr',
-        'ville_depart',
-        'ville_arrivee',
-        'date_reservation',
-        'heure_reservation',
-        'qr_code',
-        'statut',
-        'chauffeur_id',
-        'validee_montee',
-        'validee_descente',
-        'montant_retenue',
-    ];
+ protected $fillable = [
+    'nom',
+    'prenom',
+    'categorie',
+    'type_profil',
+    'ufr',
+    'ville_depart',
+    'ville_arrivee',
+    'type_trajet',
+    'date_reservation',
+    'heure_reservation',
+    'qr_code',
+    'statut',
+    'chauffeur_id',
+    'validee_montee',
+    'validee_descente',
+    'montant_retenue',
+];
 
     protected $casts = [
         'date_reservation' => 'date',

@@ -15,8 +15,8 @@ class ReservationController extends Controller
     private $tarifs = [
         'Dakar - Bambey' => 2000,
         'Bambey - Dakar' => 2000,
-        'Thies - Bambey' => 1500,
-        'Bambey - Thies' => 1500,
+        'Thies - Bambey' => 1000,
+        'Bambey - Thies' => 1000,
         'Bambey - Ngouniane' => 500,
         'Ngouniane - Bambey' => 500,
         'Thies - Ngouniane' => 1000,
@@ -202,44 +202,33 @@ $reservation->update([
             'reservation' => $reservation
         ]);
     }
-
-    // Chauffeur scanne le QR du passager
+// Chauffeur scanne le QR du passager
     public function scannerPassager(Request $request)
     {
         $request->validate([
             'qr_code_passager' => 'required|string'
         ]);
 
-        $passager = User::where('qr_code', $request->qr_code_passager)->first();
-
-        if (!$passager) {
-            return response()->json([
-                'message' => 'QR code passager invalide'
-            ], 404);
-        }
-
-        $reservation = Reservation::where('statut', 'confirmee')
-            ->where('nom', $passager->nom)
-            ->where('prenom', $passager->prenom)
-            ->whereDate('date_reservation', today())
+        $reservation = Reservation::where('qr_code', $request->qr_code_passager)
+            ->where('statut', 'confirmee')
             ->first();
 
         if (!$reservation) {
             return response()->json([
-                'message' => 'Aucune réservation confirmée pour ce passager aujourd\'hui'
+                'message' => 'QR code invalide ou reservation non confirmee'
             ], 404);
         }
 
-       
-$reservation->update([
-    'validee_montee'  => true,
-    'validee_descente' => true,
-    'chauffeur_id'    => auth()->id(),
-    'statut'          => 'terminee'
-]);
+        $reservation->update([
+            'validee_montee'   => true,
+            'validee_descente' => true,
+            'chauffeur_id'     => auth()->id(),
+            'statut'           => 'terminee'
+        ]);
+
         return response()->json([
-            'message'     => 'Passager validé avec succès',
-            'passager'    => $passager->prenom . ' ' . $passager->nom,
+            'message'     => 'Passager valide avec succes',
+            'passager'    => $reservation->prenom . ' ' . $reservation->nom,
             'reservation' => $reservation
         ]);
     }

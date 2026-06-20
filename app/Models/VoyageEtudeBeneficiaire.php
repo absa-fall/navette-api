@@ -9,14 +9,16 @@ class VoyageEtudeBeneficiaire extends Model
 {
     protected $table = 'voyage_etude_beneficiaires';
 
-    protected $fillable = [
-        'voyage_id',
-        'enseignant_id',
-        'statut_justificatif',
-        'dans_liste_definitive',
-        'statut_autorisation',
-        'autorisation_pdf',
-    ];
+   protected $fillable = [
+    'voyage_id',
+    'enseignant_id',
+    'justificatif_pdf',
+    'statut_justificatif',
+    'dans_liste_definitive',
+    'statut_autorisation',
+    'autorisation_pdf',
+    'masque_enseignant',
+];
 
     protected $casts = [
         'dans_liste_definitive' => 'boolean',

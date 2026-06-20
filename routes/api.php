@@ -144,7 +144,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordres-mission/{id}/masquer', [OrdreMissionController::class, 'supprimerHistorique']);
 
     // ============================================
-    // VOYAGES D'ÉTUDES — ordre critique : routes fixes AVANT {id}
+    // VOYAGES D'ÉTUDES — ordre critique 
     // ============================================
 
     // Éligibilité — tous les authentifiés

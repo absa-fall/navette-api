@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\AutorisationAbsence;
 
 class VoyageEtudeBeneficiaire extends Model
 {
@@ -39,5 +40,10 @@ class VoyageEtudeBeneficiaire extends Model
     public function avis()
     {
         return $this->hasMany(VoyageEtudeAvis::class, 'beneficiaire_id');
+    }
+
+    public function autorisationAbsence()
+    {
+        return $this->hasOne(AutorisationAbsence::class, 'beneficiaire_id');
     }
 }

@@ -8,68 +8,93 @@ use Illuminate\Http\Request;
 
 class RapportVoyageController extends Controller
 {
-    // Enseignant soumet son rapport
-   public function store(Request $request)
+public function store(Request $request)
 {
     $request->validate([
-        'voyage_id' => 'required|exists:voyages_etudes,id',
-        'contenu' => 'required|string',
+        'voyage_id'   => 'required|exists:voyages_etudes,id',
+        'contenu'     => 'required|string',
         'fichier_pdf' => 'nullable|file|mimes:pdf|max:10240',
     ]);
 
-    $voyage = VoyageEtude::findOrFail($request->voyage_id);
+    // Vérifier que l'enseignant est bien bénéficiaire de ce voyage
+    $beneficiaire = \App\Models\VoyageEtudeBeneficiaire::where('voyage_id', $request->voyage_id)
+        ->where('enseignant_id', auth()->id())
+        ->first();
 
-    if ($voyage->enseignant_id !== auth()->id()) {
-        return response()->json(['message' => 'Accès interdit'], 403);
+    if (!$beneficiaire) {
+        return response()->json(['message' => 'Vous n\'etes pas beneficiaire de ce voyage'], 403);
     }
 
-    if ($voyage->statut !== 'approuve') {
-        return response()->json(['message' => 'Voyage non approuvé'], 403);
-    }
-
-    // 🔴 ICI (ton code upload PDF)
     $fichierPath = null;
-
     if ($request->hasFile('fichier_pdf')) {
-        $fichierPath = $request->file('fichier_pdf')
-            ->store('rapports', 'public');
+        $fichierPath = $request->file('fichier_pdf')->store('rapports', 'public');
     }
 
+    // 1. Créer le rapport (archivage)
     $rapport = RapportVoyage::create([
-        'voyage_id' => $request->voyage_id,
+        'voyage_id'     => $request->voyage_id,
         'enseignant_id' => auth()->id(),
-        'contenu' => $request->contenu,
-        'fichier_pdf' => $fichierPath,
-        'date_depot' => now(),
-        'statut' => 'soumis',
+        'contenu'       => $request->contenu,
+        'fichier_pdf'   => $fichierPath,
+        'date_depot'    => now(),
+        'statut'        => 'soumis',
     ]);
 
+    // 2. Le rapport fait partie des justificatifs du voyage d'études en cours
+    //    → on l'ajoute automatiquement aux justificatifs et on notifie le Chef Dép
+    if ($fichierPath) {
+        \App\Models\VoyageEtudeJustificatif::create([
+            'beneficiaire_id' => $beneficiaire->id,
+            'fichier_pdf'     => $fichierPath,
+            'nom_original'    => 'Rapport_de_voyage_' . $rapport->id . '.pdf',
+        ]);
+    }
+
+    $beneficiaire->update(['statut_justificatif' => 'soumis']);
+
+    // 3. Notifier le Chef Dép de l'UFR de l'enseignant (même circuit que les justificatifs classiques)
+    $enseignant = auth()->user();
+    $chefDept = \App\Models\User::where('role', 'chef_departement')
+        ->where('ufr', $enseignant->ufr)
+        ->first();
+
+    if ($chefDept) {
+        \App\Models\Notification::create([
+            'user_id' => $chefDept->id,
+            'type'    => 'justificatif_soumis',
+            'titre'   => 'Rapport soumis comme justificatif — ' . $enseignant->ufr,
+            'message' => $enseignant->prenom . ' ' . $enseignant->nom . ' a soumis son rapport de voyage comme justificatif pour le voyage a ' . $beneficiaire->voyage->destination . '. Veuillez le verifier et le transmettre au Vice-Recteur.',
+            'lu'      => false,
+        ]);
+    }
+
     return response()->json([
-        'message' => 'Rapport soumis avec succès',
+        'message' => 'Rapport soumis avec succès au Chef de Departement comme justificatif',
         'rapport' => $rapport
     ], 201);
 }
-
     // Liste des rapports selon le rôle
-    public function index()
-    {
-        $user = auth()->user();
+   public function index()
+{
+    $user = auth()->user();
 
-        $rapports = match($user->role) {
-            'ddl' => RapportVoyage::where('enseignant_id', $user->id)
-                ->with(['voyage'])
-                ->latest()->get(),
-            'vice_recteur' => RapportVoyage::where('statut', 'soumis')
-                ->with(['enseignant', 'voyage'])
-                ->latest()->get(),
-            'admin' => RapportVoyage::with(['enseignant', 'voyage'])
-                ->latest()->get(),
-            default => collect()
-        };
+    $rapports = match($user->role) {
+        'ddl' => RapportVoyage::where('enseignant_id', $user->id)
+            ->with(['voyage'])
+            ->latest()->get(),
+        'enseignant' => RapportVoyage::where('enseignant_id', $user->id)
+            ->with(['voyage'])
+            ->latest()->get(),
+        'vice_recteur' => RapportVoyage::where('statut', 'soumis')
+            ->with(['enseignant', 'voyage'])
+            ->latest()->get(),
+        'admin' => RapportVoyage::with(['enseignant', 'voyage'])
+            ->latest()->get(),
+        default => collect()
+    };
 
-        return response()->json($rapports);
-    }
-
+    return response()->json($rapports);
+}
     // Voir un rapport
     public function show($id)
     {

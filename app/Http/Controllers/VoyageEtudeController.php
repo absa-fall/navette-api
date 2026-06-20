@@ -86,17 +86,17 @@ class VoyageEtudeController extends Controller
     // ============================================
     // ENSEIGNANT — Voir ses voyages
     // ============================================
-    public function mesVoyages()
-    {
-        $user = auth()->user();
+  public function mesVoyages()
+{
+    $user = auth()->user();
 
-        $beneficiaires = VoyageEtudeBeneficiaire::where('enseignant_id', $user->id)
-            ->with(['voyage.viceRecteur', 'justificatifs'])
-            ->latest()
-            ->get();
+    $beneficiaires = VoyageEtudeBeneficiaire::where('enseignant_id', $user->id)
+        ->with(['voyage.viceRecteur', 'autorisationAbsence'])
+        ->latest()
+        ->get();
 
-        return response()->json($beneficiaires);
-    }
+    return response()->json($beneficiaires);
+}
 
     // ============================================
     // ENSEIGNANT — Soumettre justificatifs au Chef de Département
@@ -126,7 +126,7 @@ class VoyageEtudeController extends Controller
             'statut_justificatif' => 'soumis',
         ]);
 
-        // Notifier le Chef de Département (pas le VR directement)
+        // Notifier le Chef de Département 
         $chefsDept = User::where('role', 'chef_departement')->get();
         foreach ($chefsDept as $chef) {
             Notification::create([
@@ -146,33 +146,37 @@ class VoyageEtudeController extends Controller
 
     // ============================================
     // CHEF DE DÉPARTEMENT — Voir les dossiers reçus des enseignants
-    // ============================================
-    public function dossiersDepartement()
-    {
-        $user = auth()->user();
+  public function dossiersDepartement()
+{
+    $user = auth()->user();
 
-        if ($user->role === 'directeur_ufr') {
-            // Directeur UFR voit les demandes d'autorisation de sortie
-            $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs'])
-                ->where('statut_autorisation', 'envoye_directeur_ufr')
-                ->latest()
-                ->get();
-        } else {
-            // Chef Département voit uniquement les bénéficiaires de son UFR
-            $chefUFR = auth()->user()->ufr;
-            $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs'])
-                ->whereHas('voyage', function ($q) {
-                    $q->whereIn('statut_liste', ['publiee', 'definitive']);
-                })
-                ->whereHas('enseignant', function ($q) use ($chefUFR) {
-                    $q->where('ufr', $chefUFR);
-                })
-                ->latest()
-                ->get();
-        }
-
-        return response()->json($dossiers);
+    if ($user->role === 'directeur_ufr') {
+        $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs', 'autorisationAbsence'])
+            ->where('statut_autorisation', 'envoye_directeur_ufr')
+            ->latest()
+            ->get();
+    } elseif ($user->role === 'recteur') {
+        $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs', 'autorisationAbsence'])
+            ->where('statut_autorisation', 'envoye_recteur')
+            ->latest()
+            ->get();
+    } else {
+        $chefUFR = auth()->user()->ufr;
+        $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs', 'autorisationAbsence'])
+            ->whereHas('voyage', function ($q) {
+                $q->whereIn('statut_liste', ['publiee', 'definitive']);
+            })
+            ->whereHas('enseignant', function ($q) use ($chefUFR) {
+                $q->where('ufr', $chefUFR);
+            })
+            ->latest()
+            ->get();
     }
+
+    return response()->json($dossiers);
+}
+    
+}
 
     // ============================================
     // CHEF DE DÉPARTEMENT — Transmettre dossier au VR + Commission
@@ -216,129 +220,231 @@ class VoyageEtudeController extends Controller
 
         return response()->json(['message' => 'Dossier transmis au Vice-Recteur et a la Commission']);
     }
+// Supprimer un voyage (VR ou Chef Dept)
+public function destroy($id)
+{
+    $voyage = VoyageEtude::findOrFail($id);
+    $voyage->beneficiaires()->delete();
+    $voyage->delete();
+    return response()->json(['message' => 'Voyage supprime']);
+}
 
+// Supprimer un bénéficiaire/dossier
+public function destroyBeneficiaire($id)
+{
+    $beneficiaire = VoyageEtudeBeneficiaire::findOrFail($id);
+    $beneficiaire->justificatifs()->delete();
+    $beneficiaire->avis()->delete();
+    $beneficiaire->delete();
+    return response()->json(['message' => 'Dossier supprime']);
+}
     // ============================================
     // VR + COMMISSION — Voir dossiers à valider
     // ============================================
-    public function dossiersAValider()
-    {
-        $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs', 'avis.user'])
-            ->whereIn('statut_justificatif', ['transmis_vr', 'valide', 'incomplet'])
-            ->latest()
-            ->get();
+   public function dossiersAValider()
+{
+    $dossiers = VoyageEtudeBeneficiaire::with([
+        'enseignant', 
+        'voyage', 
+        'justificatifs', 
+        'avis.user',
+        'autorisationAbsence'  
+    ])
+        ->whereIn('statut_justificatif', ['transmis_vr', 'valide', 'incomplet'])
+        ->latest()
+        ->get()
+        ->map(function ($d) {
+            $arr = $d->toArray();
+            $arr['autorisation_absence_id'] = $d->autorisationAbsence?->id;
+            return $arr;
+        });
 
-        return response()->json($dossiers);
-    }
+    return response()->json($dossiers);
+}
 
     // ============================================
     // VR + COMMISSION — Donner un avis sur un dossier
-    // ============================================
     public function donnerAvis(Request $request, $beneficiaireId)
-    {
-        $request->validate([
-            'avis'        => 'required|in:valide,rejete',
-            'commentaire' => 'nullable|string',
-        ]);
-
-        $beneficiaire = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage'])
-            ->findOrFail($beneficiaireId);
-
-        VoyageEtudeAvis::updateOrCreate(
-            [
-                'beneficiaire_id' => $beneficiaire->id,
-                'user_id'         => auth()->id(),
-            ],
-            [
-                'avis'        => $request->avis,
-                'commentaire' => $request->commentaire,
-            ]
-        );
-
-        $auteur      = auth()->user();
-        $destination = $beneficiaire->voyage->destination;
-        $nomEns      = $beneficiaire->enseignant->prenom . ' ' . $beneficiaire->enseignant->nom;
-
-        // Si c'est la commission qui donne l'avis → notifier le VR
-        if ($auteur->role === 'commission') {
-            try {
-                $vr = User::where('role', 'vice_recteur')->first();
-                if ($vr) {
-                    $avisLabel = $request->avis === 'valide' ? 'valide' : 'rejete';
+{
+    $request->validate([
+        'avis'        => 'required|in:valide,rejete',
+        'commentaire' => 'nullable|string',
+    ]);
+ 
+    $beneficiaire = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage'])
+        ->findOrFail($beneficiaireId);
+ 
+    VoyageEtudeAvis::updateOrCreate(
+        [
+            'beneficiaire_id' => $beneficiaire->id,
+            'user_id'         => auth()->id(),
+        ],
+        [
+            'avis'        => $request->avis,
+            'commentaire' => $request->commentaire,
+        ]
+    );
+ 
+    $auteur      = auth()->user();
+    $destination = $beneficiaire->voyage->destination;
+    $nomEns      = $beneficiaire->enseignant->prenom . ' ' . $beneficiaire->enseignant->nom;
+ 
+    // Si c'est la commission qui donne l'avis → notifier le VR
+    if ($auteur->role === 'commission') {
+        try {
+            $vr = User::where('role', 'vice_recteur')->first();
+            if ($vr) {
+                if ($request->avis === 'valide') {
+                    Notification::create([
+                        'user_id' => $vr->id,
+                        'type'    => 'dossier_valide_commission',
+                        'titre'   => 'Dossier valide par la commission',
+                        'message' => 'La commission a valide le dossier de ' . $nomEns . ' pour le voyage a ' . $destination . '. Veuillez a votre tour valider ce dossier.' . ($request->commentaire ? ' Commentaire : ' . $request->commentaire : ''),
+                        'lu'      => false,
+                    ]);
+                } else {
                     Notification::create([
                         'user_id' => $vr->id,
                         'type'    => 'avis_commission',
-                        'titre'   => 'Avis de la commission',
-                        'message' => 'La commission a ' . $avisLabel . ' le dossier de ' . $nomEns . ' pour le voyage a ' . $destination . '.' . ($request->commentaire ? ' Commentaire : ' . $request->commentaire : ''),
+                        'titre'   => 'Dossier rejete par la commission',
+                        'message' => 'La commission a rejete le dossier de ' . $nomEns . ' pour le voyage a ' . $destination . '.' . ($request->commentaire ? ' Raison : ' . $request->commentaire : ''),
                         'lu'      => false,
                     ]);
                 }
-            } catch (\Exception $e) {
-                \Log::error('Notification avis commission: ' . $e->getMessage());
             }
+        } catch (\Exception $e) {
+            \Log::error('Notification avis commission: ' . $e->getMessage());
         }
-
-        // Marquer comme rejeté si avis défavorable (seulement le VR peut valider définitivement)
-        if ($request->avis === 'rejete' && $auteur->role === 'vice_recteur') {
-            $beneficiaire->update(['statut_justificatif' => 'incomplet']);
-            try {
-                Notification::create([
-                    'user_id' => $beneficiaire->enseignant_id,
-                    'type'    => 'dossier_rejete',
-                    'titre'   => 'Dossier incomplet',
-                    'message' => 'Votre dossier pour le voyage a ' . $destination . ' a ete juge incomplet par le Vice-Recteur. Veuillez completer vos justificatifs aupres de votre Chef de Departement.',
-                    'lu'      => false,
-                ]);
-            } catch (\Exception $e) {
-                \Log::error('Notification rejet VR: ' . $e->getMessage());
-            }
-        }
-
-        // Si VR valide → statut valide
-        if ($request->avis === 'valide' && $auteur->role === 'vice_recteur') {
-            $beneficiaire->update(['statut_justificatif' => 'valide']);
-        }
-
-        return response()->json([
-            'message' => 'Avis enregistre',
-            'avis'    => $beneficiaire->load('avis.user'),
-        ]);
     }
-
-    // ============================================
-    // VICE-RECTEUR — Publier liste définitive + envoyer au Recteur
-    // ============================================
-    public function publierListeDefinitive(Request $request, $voyageId)
-    {
-        $request->validate([
-            'beneficiaires'   => 'required|array',
-            'beneficiaires.*' => 'exists:voyage_etude_beneficiaires,id',
-        ]);
-
-        $voyage = VoyageEtude::findOrFail($voyageId);
-
-        VoyageEtudeBeneficiaire::where('voyage_id', $voyageId)
-            ->update(['dans_liste_definitive' => false]);
-
-        VoyageEtudeBeneficiaire::whereIn('id', $request->beneficiaires)
-            ->update(['dans_liste_definitive' => true]);
-
-        $voyage->update(['statut_liste' => 'definitive']);
-
-        // Notifier le Recteur pour signer l'arrêté
-        $recteur = User::where('role', 'recteur')->first();
-        if ($recteur) {
+ 
+    // Marquer comme rejeté si VR rejette
+    if ($request->avis === 'rejete' && $auteur->role === 'vice_recteur') {
+        $beneficiaire->update(['statut_justificatif' => 'incomplet']);
+        try {
             Notification::create([
-                'user_id'  => $recteur->id,
-                'type'     => 'liste_definitive',
-                'titre'    => 'Liste definitive a signer',
-                'message'  => 'La liste definitive du voyage a ' . $voyage->destination . ' a ete validee par le Vice-Recteur et sa commission. Veuillez signer l\'arrete.',
-                'lu'       => false,
+                'user_id' => $beneficiaire->enseignant_id,
+                'type'    => 'dossier_rejete',
+                'titre'   => 'Dossier incomplet',
+                'message' => 'Votre dossier pour le voyage a ' . $destination . ' a ete juge incomplet par le Vice-Recteur. Veuillez completer vos justificatifs aupres de votre Chef de Departement.',
+                'lu'      => false,
             ]);
+        } catch (\Exception $e) {
+            \Log::error('Notification rejet VR: ' . $e->getMessage());
         }
-
-        return response()->json(['message' => 'Liste definitive publiee et envoyee au Recteur']);
     }
+ 
+    // Si VR valide → statut valide
+    if ($request->avis === 'valide' && $auteur->role === 'vice_recteur') {
+        $beneficiaire->update(['statut_justificatif' => 'valide']);
+    }
+ 
+    return response()->json([
+        'message' => 'Avis enregistre',
+        'avis'    => $beneficiaire->load('avis.user'),
+    ]);
+}
+ 
+// ============================================
+// VICE-RECTEUR — Publier liste définitive + envoyer au Recteur
+// ============================================
+public function publierListeDefinitive(Request $request, $voyageId)
+{
+    $request->validate([
+        'beneficiaires'   => 'required|array',
+        'beneficiaires.*' => 'exists:voyage_etude_beneficiaires,id',
+    ]);
+ 
+    $voyage = VoyageEtude::findOrFail($voyageId);
+ 
+    // Vérifier que tous les bénéficiaires remplissent les conditions obligatoires
+    $beneficiairesSelectionnes = VoyageEtudeBeneficiaire::with(['avis.user'])
+        ->whereIn('id', $request->beneficiaires)
+        ->get();
+ 
+    $erreurs = [];
+    foreach ($beneficiairesSelectionnes as $b) {
+        $enseignant = User::find($b->enseignant_id);
+        $nomEns     = $enseignant ? $enseignant->prenom . ' ' . $enseignant->nom : 'Enseignant #' . $b->enseignant_id;
+ 
+        // 1. Justificatifs obligatoires
+        if (!in_array($b->statut_justificatif, ['transmis_vr', 'valide'])) {
+            $erreurs[] = $nomEns . ' : justificatifs non soumis';
+            continue;
+        }
+ 
+        // 2. Avis commission obligatoire
+        $avisCommission = $b->avis->filter(fn($a) => $a->user?->role === 'commission' && $a->avis === 'valide');
+        if ($avisCommission->isEmpty()) {
+            $erreurs[] = $nomEns . ' : avis commission manquant';
+            continue;
+        }
+ 
+        // 3. Avis VR obligatoire
+        $avisVR = $b->avis->first(fn($a) => $a->user?->role === 'vice_recteur' && $a->avis === 'valide');
+        if (!$avisVR) {
+            $erreurs[] = $nomEns . ' : validation VR manquante';
+        }
+    }
+ 
+    if (!empty($erreurs)) {
+        return response()->json([
+            'message' => 'Conditions non reunies pour certains beneficiaires',
+            'erreurs' => $erreurs,
+        ], 422);
+    }
+ 
+    VoyageEtudeBeneficiaire::where('voyage_id', $voyageId)
+        ->update(['dans_liste_definitive' => false]);
+ 
+    VoyageEtudeBeneficiaire::whereIn('id', $request->beneficiaires)
+        ->update(['dans_liste_definitive' => true]);
+ 
+    $voyage->update(['statut_liste' => 'definitive']);
+ 
+    // Notifier le Recteur
+    $recteur = User::where('role', 'recteur')->first();
+    if ($recteur) {
+        Notification::create([
+            'user_id' => $recteur->id,
+            'type'    => 'liste_definitive',
+            'titre'   => 'Liste definitive a signer',
+            'message' => 'La liste definitive du voyage a ' . $voyage->destination . ' a ete validee par le VR et sa commission. Veuillez signer l\'arrete.',
+            'lu'      => false,
+        ]);
+    }
+ 
+    // Notifier les Chefs de Département par UFR
+    $beneficiairesDefinitifs = VoyageEtudeBeneficiaire::whereIn('id', $request->beneficiaires)
+        ->with('enseignant')
+        ->get();
+ 
+    $parUFR = $beneficiairesDefinitifs->groupBy(fn($b) => $b->enseignant?->ufr);
+    foreach ($parUFR as $ufr => $bens) {
+        $chefDept = User::where('role', 'chef_departement')->where('ufr', $ufr)->first();
+        if (!$chefDept) continue;
+        $noms = $bens->map(fn($b) => $b->enseignant?->prenom . ' ' . $b->enseignant?->nom)->join(', ');
+        Notification::create([
+            'user_id' => $chefDept->id,
+            'type'    => 'liste_definitive_transmise',
+            'titre'   => 'Liste definitive transmise — ' . $ufr,
+            'message' => 'La liste definitive du voyage a ' . $voyage->destination . ' a ete publiee. Beneficiaires de votre UFR : ' . $noms . '.',
+            'lu'      => false,
+        ]);
+    }
+ 
+    return response()->json(['message' => 'Liste definitive publiee et envoyee au Recteur et aux Chefs de Departement']);
+}
 
+public function beneficiaires($id)
+{
+    $voyage = VoyageEtude::findOrFail($id);
+
+    $beneficiaires = $voyage->beneficiaires()
+        ->with('enseignant')
+        ->get();
+
+    return response()->json($beneficiaires);
+}
     // ============================================
     // RECTEUR — Signer l'arrêté → notifie le VR
     // ============================================
@@ -478,51 +584,77 @@ class VoyageEtudeController extends Controller
     }
 
     // ============================================
-    // RECTEUR — Approuver l'autorisation de sortie → notifie le VR
-    // ============================================
-    public function approuverAutorisationRecteur($beneficiaireId)
-    {
-        $beneficiaire = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage'])->findOrFail($beneficiaireId);
+// RECTEUR — Approuver l'autorisation de sortie → transmet au VR
+// ============================================
+public function approuverAutorisationRecteur($beneficiaireId)
+{
+    $beneficiaire = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage'])->findOrFail($beneficiaireId);
 
-        $beneficiaire->update([
-            'statut_autorisation' => 'approuve_recteur',
-        ]);
+    $beneficiaire->update([
+        'statut_autorisation' => 'approuve_recteur',
+    ]);
 
-        // Notifier le VR
-        $vr = User::where('role', 'vice_recteur')->first();
-        if ($vr) {
-            Notification::create([
-                'user_id'  => $vr->id,
-                'type'     => 'autorisation_approuvee_recteur',
-                'titre'    => 'Autorisation approuvee par le Recteur',
-                'message'  => 'Le Recteur a approuve l\'autorisation de sortie de ' . $beneficiaire->enseignant->prenom . ' ' . $beneficiaire->enseignant->nom . ' pour le voyage a ' . $beneficiaire->voyage->destination . '.',
-                'lu'       => false,
-            ]);
-        }
-
-        // Notifier l'enseignant
+    // Transmettre au VR (pas directement à l'enseignant)
+    $vr = User::where('role', 'vice_recteur')->first();
+    if ($vr) {
         Notification::create([
-            'user_id'  => $beneficiaire->enseignant_id,
-            'type'     => 'autorisation_approuvee',
-            'titre'    => 'Autorisation de sortie approuvee',
-            'message'  => 'Votre autorisation de sortie pour le voyage a ' . $beneficiaire->voyage->destination . ' a ete approuvee par le Recteur.',
-            'lu'       => false,
+            'user_id' => $vr->id,
+            'type'    => 'autorisation_approuvee_recteur',
+            'titre'   => 'Autorisation approuvee par le Recteur',
+            'message' => 'Le Recteur a approuve l\'autorisation de sortie de ' . $beneficiaire->enseignant->prenom . ' ' . $beneficiaire->enseignant->nom . ' pour le voyage a ' . $beneficiaire->voyage->destination . '. Veuillez la transmettre a l\'enseignant.',
+            'lu'      => false,
         ]);
-
-        return response()->json(['message' => 'Autorisation approuvee par le Recteur']);
     }
 
+    return response()->json(['message' => 'Autorisation approuvee et transmise au Vice-Recteur']);
+}
+// ============================================
+// VR — Transmettre l'autorisation finale a l'enseignant
+// ============================================
+public function transmettreAutorisationEnseignant($beneficiaireId)
+{
+    $beneficiaire = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage'])->findOrFail($beneficiaireId);
+
+    $beneficiaire->update([
+        'statut_autorisation' => 'approuve',
+    ]);
+
+    Notification::create([
+        'user_id' => $beneficiaire->enseignant_id,
+        'type'    => 'autorisation_approuvee',
+        'titre'   => 'Autorisation de sortie approuvee',
+        'message' => 'Votre autorisation de sortie pour le voyage a ' . $beneficiaire->voyage->destination . ' a ete approuvee par le Recteur et transmise par le Vice-Recteur. Vous pouvez partir sereinement.',
+        'lu'      => false,
+    ]);
+
+    return response()->json(['message' => 'Autorisation transmise a l\'enseignant']);
+}
     // ============================================
     // LISTE TOUS LES VOYAGES (VR + Recteur)
     // ============================================
-    public function index()
-    {
-        $voyages = VoyageEtude::with(['beneficiaires.enseignant', 'beneficiaires.justificatifs', 'beneficiaires.avis.user', 'viceRecteur'])
-            ->latest()
-            ->get();
+  public function index()
+{
+    $voyages = VoyageEtude::with([
+        'beneficiaires.enseignant',
+        'beneficiaires.justificatifs',
+        'beneficiaires.avis.user',
+        'beneficiaires.autorisationAbsence',  
+        'viceRecteur'
+    ])
+        ->latest()
+        ->get()
+        ->map(function ($voyage) {
+            $arr = $voyage->toArray();
+            $arr['beneficiaires'] = $voyage->beneficiaires->map(function ($b) {
+                $arr = $b->toArray();
+                $arr['autorisation_absence_id'] = $b->autorisationAbsence?->id;
+                return $arr;
+            });
+            return $arr;
+        });
 
-        return response()->json($voyages);
-    }
+    return response()->json($voyages);
+}
 
     // ============================================
     // VOIR UN VOYAGE
@@ -648,4 +780,20 @@ return response()->json([
             'message' => 'Rapport envoye comme justificatif avec succes'
         ]);
     }
+    public function voirAutorisationSortie($beneficiaireId)
+{
+    $beneficiaire = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs'])
+        ->findOrFail($beneficiaireId);
+
+    // Enseignant → uniquement son propre dossier
+    if (auth()->user()->role === 'enseignant' && $beneficiaire->enseignant_id !== auth()->id()) {
+        return response()->json(['message' => 'Accès refusé'], 403);
+    }
+
+    return response()->json([
+        'statut_autorisation' => $beneficiaire->statut_autorisation,
+        'autorisation_sortie' => $beneficiaire->autorisation_sortie,
+        'beneficiaire'        => $beneficiaire,
+    ]);
+}
 }

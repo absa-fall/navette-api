@@ -16,7 +16,7 @@ class ArreteVoyageMail extends Mailable
     public $arrete;
     public $enseignant;
 
-    public function __construct(ArreteVoyage $arrete, User $enseignant)
+   public function __construct(ArreteVoyage $arrete, ?User $enseignant = null)
     {
         $this->arrete     = $arrete;
         $this->enseignant = $enseignant;

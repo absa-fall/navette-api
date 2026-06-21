@@ -6,6 +6,8 @@ use App\Models\AutorisationAbsence;
 use App\Models\VoyageEtudeBeneficiaire;
 use App\Models\User;
 use App\Models\Notification;
+use App\Mail\AutorisationAbsenceMail;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Http\Request;
 
 class AutorisationAbsenceController extends Controller
@@ -181,30 +183,48 @@ class AutorisationAbsenceController extends Controller
     // RECTEUR — Signe (étape 4)
     // Envoie au VR
     // ============================================
-    public function signerRecteur($id)
-    {
-        $autorisation = AutorisationAbsence::with('enseignant')->findOrFail($id);
+   public function signerRecteur($id)
+{
+    $autorisation = AutorisationAbsence::with('enseignant')->findOrFail($id);
 
-        $autorisation->update([
-            'recteur_id'              => auth()->id(),
-            'date_signature_recteur'  => now(),
-            'statut'                  => 'signee_recteur',
+    $autorisation->update([
+        'recteur_id'              => auth()->id(),
+        'date_signature_recteur'  => now(),
+        'statut'                  => 'transmise',
+    ]);
+
+   $autorisation->beneficiaire()->update(['statut_autorisation' => 'approuve_recteur']);
+    Notification::create([
+        'user_id' => $autorisation->enseignant_id,
+        'type'    => 'autorisation_disponible',
+        'titre'   => 'Autorisation d\'absence disponible',
+        'message' => 'Votre autorisation d\'absence (' . $autorisation->numero . ') a ete signee par le Recteur. Vous pouvez la telecharger.',
+        'lu'      => false,
+    ]);
+
+    $vr = User::where('role', 'vice_recteur')->first();
+    if ($vr) {
+        Notification::create([
+            'user_id' => $vr->id,
+            'type'    => 'autorisation_signee',
+            'titre'   => 'Autorisation signee — ' . $autorisation->numero,
+            'message' => 'Le Recteur a signe et transmis l\'autorisation d\'absence de ' . $autorisation->nom_demandeur . '.',
+            'lu'      => false,
         ]);
-
-        $vr = User::where('role', 'vice_recteur')->first();
-        if ($vr) {
-            Notification::create([
-                'user_id' => $vr->id,
-                'type'    => 'autorisation_signee',
-                'titre'   => 'Autorisation signee — ' . $autorisation->numero,
-                'message' => 'Le Recteur a signe l\'autorisation d\'absence de ' . $autorisation->nom_demandeur . '. Veuillez la transmettre a l\'enseignant.',
-                'lu'      => false,
-            ]);
-        }
-
-        return response()->json(['message' => 'Autorisation signee et transmise au Vice-Recteur', 'autorisation' => $autorisation]);
     }
 
+    // Envoi par email a l'enseignant et au VR
+    try {
+        Mail::to($autorisation->enseignant->email)->send(new AutorisationAbsenceMail($autorisation));
+        if ($vr) {
+            Mail::to($vr->email)->send(new AutorisationAbsenceMail($autorisation));
+        }
+    } catch (\Exception $e) {
+        \Log::error('Erreur envoi mail autorisation absence : ' . $e->getMessage());
+    }
+
+    return response()->json(['message' => 'Autorisation signee et transmise a l\'enseignant', 'autorisation' => $autorisation]);
+}
     // ============================================
     // VICE-RECTEUR — Transmet directement à l'enseignant (étape 5, finale)
     // ============================================
@@ -218,8 +238,7 @@ class AutorisationAbsenceController extends Controller
             'statut'                => 'transmise',
         ]);
 
-        $autorisation->beneficiaire()->update(['statut_autorisation' => 'approuve']);
-
+       $autorisation->beneficiaire()->update(['statut_autorisation' => 'approuve_recteur']);
         Notification::create([
             'user_id' => $autorisation->enseignant_id,
             'type'    => 'autorisation_disponible',
@@ -247,35 +266,66 @@ class AutorisationAbsenceController extends Controller
     // LISTE — selon le rôle connecté (boîte de réception par étape)
     // ============================================
     public function index()
-    {
-        $user = auth()->user();
+{
+    $user = auth()->user();
 
-        $query = AutorisationAbsence::with(['enseignant', 'beneficiaire.voyage']);
+    $query = AutorisationAbsence::with(['enseignant', 'beneficiaire.voyage']);
 
-        $query = match ($user->role) {
-            'chef_departement' => $query->where('ufr_departement', $user->ufr)->where('statut', 'soumise'),
-            'directeur_ufr'    => $query->where('ufr_departement', $user->ufr)->where('statut', 'avis_chef_departement'),
-            'recteur'          => $query->where('statut', 'avis_directeur_ufr'),
-            'vice_recteur'     => $query->where('statut', 'signee_recteur'),
-            'enseignant'       => $query->where('enseignant_id', $user->id),
-            default            => $query,
-        };
+    $query = match ($user->role) {
+        'chef_departement' => $query->where('masque_chef_departement', false)
+            ->where('ufr_departement', $user->ufr)
+            ->where(function ($q) use ($user) {
+                $q->where('statut', 'soumise')
+                  ->orWhere('chef_departement_id', $user->id);
+            }),
+        'directeur_ufr' => $query->where('masque_directeur_ufr', false)
+            ->where('ufr_departement', $user->ufr)
+            ->where(function ($q) use ($user) {
+                $q->where('statut', 'avis_chef_departement')
+                  ->orWhere('directeur_ufr_id', $user->id);
+            }),
+        'recteur' => $query->where('masque_recteur', false)
+            ->where(function ($q) use ($user) {
+                $q->where('statut', 'avis_directeur_ufr')
+                  ->orWhere('recteur_id', $user->id);
+            }),
+        'vice_recteur' => $query->where(function ($q) use ($user) {
+            $q->where('statut', 'signee_recteur')
+              ->orWhere('vr_id', $user->id);
+        }),
+        'enseignant' => $query->where('masque_enseignant', false)
+            ->where('enseignant_id', $user->id),
+        default => $query,
+    };
 
-        return response()->json($query->latest()->get());
+    return response()->json($query->latest()->get());
+}
+    public function destroy($id)
+{
+    $autorisation = AutorisationAbsence::findOrFail($id);
+    $user = auth()->user();
+
+    $champ = match($user->role) {
+        'chef_departement' => 'masque_chef_departement',
+        'directeur_ufr'    => 'masque_directeur_ufr',
+        'recteur'          => 'masque_recteur',
+        'enseignant'       => 'masque_enseignant',
+        default            => null
+    };
+
+    if (!$champ) {
+        return response()->json(['message' => 'Non autorise'], 403);
     }
-      public function destroy($id)
-    {
-        $autorisation = AutorisationAbsence::findOrFail($id);
-        $user = auth()->user();
 
-        if ($user->role === 'enseignant' && $autorisation->enseignant_id !== $user->id) {
-            return response()->json(['message' => 'Action non autorisee'], 403);
-        }
-
-        $autorisation->delete();
-
-        return response()->json(['message' => 'Demande supprimee']);
+    // Vérification enseignant
+    if ($user->role === 'enseignant' && $autorisation->enseignant_id !== $user->id) {
+        return response()->json(['message' => 'Action non autorisee'], 403);
     }
+
+    $autorisation->update([$champ => true]);
+
+    return response()->json(['message' => 'Supprime de votre historique']);
+}
     // ============================================
 // RECTEUR — Envoyer autorisation par email à l'enseignant
 // ============================================

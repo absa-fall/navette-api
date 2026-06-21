@@ -24,8 +24,8 @@ class OrdreMissionController extends Controller
             'moyen_transport' => 'nullable|string|max:200',
             'vehicule_id' => 'nullable|exists:vehicules,id',
             'date_depart' => 'required|date',
-            'heure_depart' => 'nullable|string', // ✅ plus required
-            'date_retour' => 'required|date|after_or_equal:date_depart',
+            'heure_depart' => 'nullable|string', 
+          'date_retour' => 'nullable|date|after_or_equal:date_depart',
             'frais_transport' => 'nullable|string|max:200',
             'indemnite_deplacement' => 'nullable|string|max:200',
             'trajet' => 'nullable|in:dakar_bambey,thies_bambey,bambey_ngouniane,autres',
@@ -47,7 +47,7 @@ class OrdreMissionController extends Controller
             'moyen_transport' => $request->moyen_transport,
             'vehicule_id' => $request->vehicule_id,
             'date_depart' => $request->date_depart,
-            'heure_depart' => $request->heure_depart ?? '07:30', // ✅ valeur par défaut
+            'heure_depart' => $request->heure_depart ?? '07:30', 
             'date_retour' => $request->date_retour,
             'frais_transport' => $request->frais_transport ?? 'Appui en carburant',
             'indemnite_deplacement' => $request->indemnite_deplacement ?? 'Néant',
@@ -266,18 +266,17 @@ class OrdreMissionController extends Controller
         ]);
     }
 
-    // Chauffeur voit ses ordres
-    public function pourChauffeur()
-    {
-        $ordres = OrdreMission::where('chauffeur_id', auth()->id())
-            ->whereIn('statut', ['transmis_chauffeur', 'execute'])
-            ->with(['ddl', 'vehicule'])
-            ->latest()
-            ->get();
+   public function pourChauffeur()
+{
+    $ordres = OrdreMission::where('chauffeur_id', auth()->id())
+        ->where('masque_chauffeur', false)
+        ->whereIn('statut', ['transmis_chauffeur', 'execute'])
+        ->with(['ddl', 'vehicule'])
+        ->latest()
+        ->get();
 
-        return response()->json($ordres);
-    }
-
+    return response()->json($ordres);
+}
     // Chauffeur marque comme exécuté
     public function marquerRecu($id)
     {

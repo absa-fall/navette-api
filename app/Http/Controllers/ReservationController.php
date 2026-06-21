@@ -23,60 +23,59 @@ class ReservationController extends Controller
          'Ngouniane - Thies' => 1000,
     ];
 
-    // Créer une réservation
     public function store(Request $request)
-    {
-        $request->validate([
-            'nom'              => 'required|string|max:100',
-            'prenom'           => 'required|string|max:100',
-            'categorie'        => 'required|string|in:PER,PATS,ATR,Vacataire',
-            'type_profil'      => 'required|string|in:permanent,non_permanent,contractuel,vacataire',
-            'ufr'              => 'required|string|max:100',
-            'type_trajet'      => 'required|in:aller,retour,aller_retour',
-            'ville_depart'     => 'required|string|max:100',
-            'ville_arrivee'    => 'required|string|max:100',
-            'date_reservation' => 'required|date',
-            'heure_reservation'=> 'required',
-        ]);
+{
+    $request->validate([
+        'nom'              => 'required|string|max:100',
+        'prenom'           => 'required|string|max:100',
+        'categorie'        => 'required|string|in:PER,PATS,ATR,Vacataire',
+        'type_profil'      => 'required|string|in:permanent,non_permanent,contractuel,vacataire',
+        'ufr'              => 'required|string|max:100',
+        'type_trajet'      => 'required|in:aller,retour,aller_retour',
+        'ville_depart'     => 'required|string|max:100',
+        'ville_arrivee'    => 'required|string|max:100',
+        'date_reservation' => 'required|date',
+        'heure_reservation'=> 'required',
+    ]);
 
-        $qrCode = strtoupper(Str::random(11));
+    $qrCode = strtoupper(Str::random(11));
 
-        $trajet        = $request->ville_depart . ' - ' . $request->ville_arrivee;
-        $trajetInverse = $request->ville_arrivee . ' - ' . $request->ville_depart;
-        $montant       = $this->tarifs[$trajet] ?? $this->tarifs[$trajetInverse] ?? 0;
+    $trajet        = $request->ville_depart . ' - ' . $request->ville_arrivee;
+    $trajetInverse = $request->ville_arrivee . ' - ' . $request->ville_depart;
+    $montant       = $this->tarifs[$trajet] ?? $this->tarifs[$trajetInverse] ?? 0;
 
-        if ($request->type_profil === 'vacataire') {
-            $montant = 0;
-        }
-
-        if ($request->type_trajet === 'aller_retour') {
-            $montant *= 2;
-        }
-
-        $reservation = Reservation::create([
-            'nom'              => $request->nom,
-            'prenom'           => $request->prenom,
-            'categorie'        => $request->categorie,
-            'type_profil'      => $request->type_profil,
-            'ufr'              => $request->ufr,
-            'type_trajet'      => $request->type_trajet,
-            'ville_depart'     => $request->ville_depart,
-            'ville_arrivee'    => $request->ville_arrivee,
-            'date_reservation' => $request->date_reservation,
-            'heure_reservation'=> $request->heure_reservation,
-            'qr_code'          => $qrCode,
-            'statut'           => 'en_attente_confirmation',
-            'montant_retenue'  => $montant,
-        ]);
-
-        return response()->json([
-            'message'     => 'Réservation envoyée ! En attente de confirmation du chauffeur.',
-            'reservation' => $reservation,
-            'qr_code'     => $qrCode,
-            'montant'     => $montant,
-        ]);
+    if ($request->type_profil === 'vacataire') {
+        $montant = 0;
     }
 
+    if ($request->type_trajet === 'aller_retour') {
+        $montant *= 2;
+    }
+
+    $reservation = Reservation::create([
+        'user_id'          => auth()->id(), // ✅ ajout
+        'nom'              => $request->nom,
+        'prenom'           => $request->prenom,
+        'categorie'        => $request->categorie,
+        'type_profil'      => $request->type_profil,
+        'ufr'              => $request->ufr,
+        'type_trajet'      => $request->type_trajet,
+        'ville_depart'     => $request->ville_depart,
+        'ville_arrivee'    => $request->ville_arrivee,
+        'date_reservation' => $request->date_reservation,
+        'heure_reservation'=> $request->heure_reservation,
+        'qr_code'          => $qrCode,
+        'statut'           => 'en_attente_confirmation',
+        'montant_retenue'  => $montant,
+    ]);
+
+    return response()->json([
+        'message'     => 'Réservation envoyée ! En attente de confirmation du chauffeur.',
+        'reservation' => $reservation,
+        'qr_code'     => $qrCode,
+        'montant'     => $montant,
+    ]);
+}
     // Chauffeur confirme une réservation
     public function confirmer(Request $request, $id)
     {
@@ -154,54 +153,52 @@ public function supprimerMaReservation($id)
         return response()->json(['message' => 'Non autorisé'], 403);
     }
 
-    if (in_array($reservation->statut, ['en_cours', 'terminee'])) {
-        return response()->json(['message' => 'Impossible de supprimer une réservation en cours ou terminée'], 403);
-    }
-
     $reservation->delete();
     return response()->json(['message' => 'Réservation supprimée']);
 }
     // Passager scanne le QR du bus
     public function scannerBus(Request $request)
-    {
-        $request->validate([
-            'qr_code_bus' => 'required|string'
-        ]);
+{
+    $request->validate([
+        'qr_code_bus' => 'required|string'
+    ]);
 
-        $vehicule = \App\Models\Vehicule::where('qr_code', $request->qr_code_bus)->first();
+    $vehicule = \App\Models\Vehicule::where('qr_code', $request->qr_code_bus)->first();
 
-        if (!$vehicule) {
-            return response()->json([
-                'message' => 'QR code du bus invalide'
-            ], 404);
-        }
-
-        $user = auth()->user();
-        $reservation = Reservation::where('statut', 'confirmee')
-            ->where('nom', $user->nom)
-            ->where('prenom', $user->prenom)
-            ->whereDate('date_reservation', today())
-            ->first();
-
-        if (!$reservation) {
-            return response()->json([
-                'message' => 'Aucune réservation confirmée trouvée pour aujourd\'hui'
-            ], 404);
-        }
-
-       
-$reservation->update([
-    'validee_montee'  => true,
-    'validee_descente' => true,
-    'vehicule_id'     => $vehicule->id,
-    'statut'          => 'terminee'
-]);
-
-        return response()->json([
-            'message'     => 'Montée validée avec succès ! Bon voyage.',
-            'reservation' => $reservation
-        ]);
+    if (!$vehicule) {
+        return response()->json(['message' => 'QR code du bus invalide'], 404);
     }
+
+    $user = auth()->user();
+
+    $reservation = Reservation::where('statut', 'confirmee')
+        ->where(function ($q) use ($user) {
+            $q->where('user_id', $user->id)
+              ->orWhere(function ($sub) use ($user) {
+                  $sub->whereNull('user_id')
+                      ->where('nom', $user->nom)
+                      ->where('prenom', $user->prenom);
+              });
+        })
+        ->whereDate('date_reservation', today())
+        ->first();
+
+    if (!$reservation) {
+        return response()->json(['message' => 'Aucune réservation confirmée trouvée pour aujourd\'hui'], 404);
+    }
+
+    $reservation->update([
+        'validee_montee'   => true,
+        'validee_descente' => true,
+        'vehicule_id'      => $vehicule->id,
+        'statut'           => 'terminee'
+    ]);
+
+    return response()->json([
+        'message'     => 'Montée validée avec succès ! Bon voyage.',
+        'reservation' => $reservation
+    ]);
+}
 // Chauffeur scanne le QR du passager
     public function scannerPassager(Request $request)
     {
@@ -235,9 +232,13 @@ $reservation->update([
 public function mesReservations()
 {
     $user = auth()->user();
-    
-    $reservations = Reservation::where('nom', $user->nom)
-        ->where('prenom', $user->prenom)
+
+    $reservations = Reservation::where('user_id', $user->id)
+        ->orWhere(function ($q) use ($user) {
+            $q->whereNull('user_id')
+              ->where('nom', $user->nom)
+              ->where('prenom', $user->prenom);
+        })
         ->orderBy('created_at', 'desc')
         ->get();
 
@@ -318,27 +319,26 @@ public function mesReservations()
 
     // Liste pour le SG VR
     public function pourSGVR()
-    {
-        try {
-            $reservations = Reservation::select([
-                'id', 'nom', 'prenom', 'categorie', 'type_profil',
-                'ufr', 'ville_depart', 'ville_arrivee', 'date_reservation',
-                'heure_reservation', 'statut', 'validee_montee',
-                'validee_descente', 'montant_retenue', 'created_at'
-            ])
-            ->orderBy('created_at', 'desc')
-            ->get();
+{
+    try {
+        $reservations = Reservation::select([
+            'id', 'nom', 'prenom', 'categorie', 'type_profil',
+            'ufr', 'ville_depart', 'ville_arrivee', 'type_trajet',
+            'date_reservation', 'heure_reservation', 'statut', 'validee_montee',
+            'validee_descente', 'montant_retenue', 'created_at'
+        ])
+        ->orderBy('created_at', 'desc')
+        ->get();
 
-            return response()->json($reservations);
+        return response()->json($reservations);
 
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Erreur lors du chargement des réservations',
-                'error'   => $e->getMessage()
-            ], 500);
-        }
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Erreur lors du chargement des réservations',
+            'error'   => $e->getMessage()
+        ], 500);
     }
-
+}
     // Supprimer
     public function destroy($id)
     {

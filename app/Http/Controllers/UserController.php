@@ -23,7 +23,7 @@ class UserController extends Controller
             'prenom' => 'required|string',
             'email' => 'required|email|unique:users',
             'password' => 'required|min:6',
-            'role' => 'required|in:ddl,drh,sg_drh,chauffeur,sg_vr,vice_recteur,admin',
+           'role' => 'required|in:ddl,drh,sg_drh,chauffeur,sg_vr,vice_recteur,admin,chef_departement,directeur_ufr,recteur,commission,enseignant',
             'type_profil' => 'nullable|in:PER,PATS,ATR',
             'statut' => 'nullable|in:permanent,non_permanent,contractuel,vacataire',
             'ufr' => 'nullable|in:SATIC,SDD,ECOMIJ,ISFAR',

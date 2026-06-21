@@ -18,6 +18,11 @@ class VoyageEtudeBeneficiaire extends Model
     'statut_autorisation',
     'autorisation_pdf',
     'masque_enseignant',
+    'masque_chef_departement',  
+    'masque_directeur_ufr',     
+    'masque_recteur',           
+    'masque_vice_recteur',     
+    'masque_commission',
 ];
 
     protected $casts = [

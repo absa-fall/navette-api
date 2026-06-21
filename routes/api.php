@@ -5,7 +5,6 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VehiculeController;
 use App\Http\Controllers\OrdreMissionController;
-use App\Http\Controllers\RegistreTrajetController;
 use App\Http\Controllers\VoyageEtudeController;
 use App\Http\Controllers\RapportVoyageController;
 use App\Http\Controllers\RecapitulatifHebdoController;
@@ -21,6 +20,8 @@ use App\Http\Controllers\ArreteVoyageController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register', [AuthController::class, 'register']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
 Route::post('/reservations', [ReservationController::class, 'store']);
 Route::post('/validation/montee', [ReservationController::class, 'validerMontee']);
@@ -35,6 +36,10 @@ Route::get('/profile/me', [ProfileController::class, 'me'])->middleware('auth:sa
 // ============================================
 
 Route::middleware('auth:sanctum')->group(function () {
+
+    // Auth
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/me', [AuthController::class, 'me']);
 
     // Scan QR
     Route::post('/scan/bus', [ReservationController::class, 'scannerBus']);
@@ -54,22 +59,17 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reservations/sgvr', [ReservationController::class, 'pourSGVR']);
     });
 
-    // Auth
-    Route::post('/logout', [AuthController::class, 'logout']);
-    Route::get('/me', [AuthController::class, 'me']);
-
     // ============================================
-// RAPPORTS DE VOYAGE
-// ============================================
-Route::get('/rapports', [RapportVoyageController::class, 'index']);
-Route::get('/rapports/{id}', [RapportVoyageController::class, 'show']);
-Route::get('/rapports/{id}/download', [RapportVoyageController::class, 'download']);
+    // RAPPORTS DE VOYAGE
+    // ============================================
+    Route::get('/rapports', [RapportVoyageController::class, 'index']);
+    Route::get('/rapports/{id}', [RapportVoyageController::class, 'show']);
+    Route::get('/rapports/{id}/download', [RapportVoyageController::class, 'download']);
 
-Route::middleware('role:enseignant')->group(function () {
-    Route::post('/rapports', [RapportVoyageController::class, 'store']);
-    Route::post('/rapports/{id}/resoumettre', [RapportVoyageController::class, 'resoumettre']);
-    Route::delete('/rapports/{id}/historique', [RapportVoyageController::class, 'supprimerHistorique']); // ✅ AJOUTE
-});
+    Route::middleware('role:enseignant')->group(function () {
+        Route::post('/rapports', [RapportVoyageController::class, 'store']);
+        
+    });
 
     Route::middleware('role:vice_recteur')->group(function () {
         Route::patch('/rapports/{id}/valider', [RapportVoyageController::class, 'valider']);
@@ -129,8 +129,6 @@ Route::middleware('role:enseignant')->group(function () {
     // ============================================
     // ORDRES DE MISSION
     // ============================================
-
-    //  Routes sans middleware AVANT les groupes avec {id}
     Route::get('/ordres-mission', [OrdreMissionController::class, 'index']);
     Route::get('/ordres-mission/{id}', [OrdreMissionController::class, 'show']);
     Route::delete('/ordres-mission/{id}/historique', [OrdreMissionController::class, 'supprimerHistorique']);
@@ -164,22 +162,28 @@ Route::middleware('role:enseignant')->group(function () {
 
     // ============================================
     // VOYAGES D'ÉTUDES
+    // RÈGLE : routes statiques AVANT routes avec {id}
     // ============================================
 
     Route::get('/voyages/eligibilite', [VoyageEtudeController::class, 'verifierEligibilite']);
 
+    // Autorisations d'absence — lecture accessible à tous les authentifiés
     Route::get('/autorisations-absence', [AutorisationAbsenceController::class, 'index']);
     Route::get('/autorisations-absence/{id}', [AutorisationAbsenceController::class, 'show']);
-    Route::delete('/autorisations-absence/{id}', [AutorisationAbsenceController::class, 'destroy']);
 
+    // Arrêtés — lecture accessible à tous
+    Route::get('/arretes/{id}', [ArreteVoyageController::class, 'show']);
+    Route::get('/voyages-etudes/{voyageId}/arrete', [ArreteVoyageController::class, 'showByVoyage']);
+
+    // --- ENSEIGNANT ---
     Route::middleware('role:enseignant')->group(function () {
-    Route::get('/mes-voyages-etudes', [VoyageEtudeController::class, 'mesVoyages']);
-    Route::post('/voyages-etudes/beneficiaire/{id}/justificatifs', [VoyageEtudeController::class, 'soumettreJustificatifs']);
-    Route::post('/voyages-etudes/beneficiaire/{id}/justificatif-rapport', [VoyageEtudeController::class, 'justificatifDepuisRapport']);
-    Route::patch('/voyages-etudes/beneficiaire/{id}/demander-autorisation', [VoyageEtudeController::class, 'demanderAutorisation']);
-    Route::post('/voyages-etudes/beneficiaire/{id}/autorisation-absence', [AutorisationAbsenceController::class, 'store']);
-    Route::patch('/voyages-etudes/beneficiaire/{id}/masquer', [VoyageEtudeController::class, 'masquerVoyage']);
-});
+        Route::get('/mes-voyages-etudes', [VoyageEtudeController::class, 'mesVoyages']);
+        Route::post('/voyages-etudes/beneficiaire/{id}/justificatifs', [VoyageEtudeController::class, 'soumettreJustificatifs']);
+     Route::get('/voyages-etudes/{voyageId}/arrete', [ArreteVoyageController::class, 'showByVoyage']);
+        Route::patch('/voyages-etudes/beneficiaire/{id}/demander-autorisation', [VoyageEtudeController::class, 'demanderAutorisation']);
+        Route::post('/voyages-etudes/beneficiaire/{id}/autorisation-absence', [AutorisationAbsenceController::class, 'store']);
+        Route::patch('/voyages-etudes/beneficiaire/{id}/masquer', [VoyageEtudeController::class, 'masquerVoyage']);
+    });
 
     // --- CHEF DE DÉPARTEMENT ---
     Route::middleware('role:chef_departement')->group(function () {
@@ -188,8 +192,7 @@ Route::middleware('role:enseignant')->group(function () {
         Route::patch('/voyages-etudes/beneficiaire/{id}/autorisation-sortie', [VoyageEtudeController::class, 'autorisationSortie']);
         Route::get('/voyages-etudes/{id}/beneficiaires', [VoyageEtudeController::class, 'beneficiaires']);
         Route::patch('/autorisations-absence/{id}/avis-chef-departement', [AutorisationAbsenceController::class, 'avisChefDepartement']);
-        Route::delete('/voyages-etudes/beneficiaire/{id}/dossier', [VoyageEtudeController::class, 'destroyBeneficiaire']);
-        Route::delete('/voyages-etudes/{id}', [VoyageEtudeController::class, 'destroy']);
+        Route::delete('/autorisations-absence/{id}', [AutorisationAbsenceController::class, 'destroy']);
     });
 
     // --- DIRECTEUR UFR ---
@@ -198,50 +201,53 @@ Route::middleware('role:enseignant')->group(function () {
         Route::patch('/autorisations-absence/{id}/avis-directeur-ufr', [AutorisationAbsenceController::class, 'avisDirecteurUfr']);
     });
 
-    // --- CHEF DE DÉPARTEMENT + DIRECTEUR UFR + RECTEUR ---
+    // --- CHEF DÉPARTEMENT + DIRECTEUR UFR + RECTEUR ---
+    // IMPORTANT : route statique "dossiers-departement" AVANT les {id}
     Route::middleware('role:chef_departement,directeur_ufr,recteur')->group(function () {
         Route::get('/voyages-etudes/dossiers-departement', [VoyageEtudeController::class, 'dossiersDepartement']);
     });
 
     // --- VR + COMMISSION ---
+    // IMPORTANT : route statique "dossiers-a-valider" AVANT les {id}
     Route::middleware('role:vice_recteur,commission')->group(function () {
         Route::get('/voyages-etudes/dossiers-a-valider', [VoyageEtudeController::class, 'dossiersAValider']);
         Route::patch('/voyages-etudes/beneficiaire/{id}/avis', [VoyageEtudeController::class, 'donnerAvis']);
     });
 
+    // --- VOIR AUTORISATION SORTIE (multi-rôles) ---
     Route::middleware('role:enseignant,chef_departement,directeur_ufr,recteur,vice_recteur')->group(function () {
         Route::get('/voyages-etudes/beneficiaire/{id}/autorisation-sortie', [VoyageEtudeController::class, 'voirAutorisationSortie']);
     });
 
+    // --- RECTEUR + VICE-RECTEUR ---
+    Route::middleware('role:recteur,vice_recteur')->group(function () {
+        Route::get('/voyages-etudes', [VoyageEtudeController::class, 'index']);
+    });
+
+    // --- SUPPRESSION voyage et dossier — chef_departement + recteur + vice_recteur ---
+    Route::middleware('role:chef_departement,recteur,vice_recteur,commission')->group(function () {
+        Route::delete('/voyages-etudes/beneficiaire/{id}/dossier', [VoyageEtudeController::class, 'destroyBeneficiaire']);
+        Route::delete('/voyages-etudes/{id}', [VoyageEtudeController::class, 'destroy']);
+    });
+
+    // --- RECTEUR ---
+    Route::middleware('role:recteur')->group(function () {
+        Route::post('/voyages-etudes/{id}/arrete', [ArreteVoyageController::class, 'store']);
+        Route::patch('/voyages-etudes/beneficiaire/{id}/approuver-autorisation-recteur', [VoyageEtudeController::class, 'approuverAutorisationRecteur']);
+        Route::patch('/autorisations-absence/{id}/signer-recteur', [AutorisationAbsenceController::class, 'signerRecteur']);
+        Route::post('/autorisations-absence/{id}/envoyer-email', [AutorisationAbsenceController::class, 'envoyerEmail']);
+    });
+
     // --- VICE-RECTEUR SEUL ---
+    
     Route::middleware('role:vice_recteur')->group(function () {
         Route::post('/voyages-etudes', [VoyageEtudeController::class, 'publierListe']);
         Route::post('/voyages-etudes/{id}/ajouter-beneficiaire', [VoyageEtudeController::class, 'ajouterBeneficiaire']);
         Route::post('/voyages-etudes/{id}/liste-definitive', [VoyageEtudeController::class, 'publierListeDefinitive']);
         Route::post('/voyages-etudes/{id}/notifier-beneficiaires', [VoyageEtudeController::class, 'notifierBeneficiairesDefinitifs']);
-        Route::get('/voyages-etudes/{id}', [VoyageEtudeController::class, 'show']);
         Route::patch('/autorisations-absence/{id}/transmettre-enseignant', [AutorisationAbsenceController::class, 'transmettreEnseignant']);
+        Route::post('/arretes/{id}/envoyer-emails', [ArreteVoyageController::class, 'envoyerEmails']);
+        Route::get('/voyages-etudes/{id}', [VoyageEtudeController::class, 'show']); // ← EN DERNIER
     });
 
-   // --- RECTEUR + VICE-RECTEUR ---
-Route::middleware('role:recteur,vice_recteur')->group(function () {
-    Route::get('/voyages-etudes', [VoyageEtudeController::class, 'index']);
-    Route::delete('/voyages-etudes/{id}', [VoyageEtudeController::class, 'destroy']);
-    Route::delete('/voyages-etudes/beneficiaire/{id}/dossier', [VoyageEtudeController::class, 'destroyBeneficiaire']);
-});
-
-  // --- RECTEUR ---
-Route::middleware('role:recteur')->group(function () {
-    Route::post('/voyages-etudes/{id}/arrete', [ArreteVoyageController::class, 'store']);
-    Route::patch('/voyages-etudes/beneficiaire/{id}/approuver-autorisation-recteur', [VoyageEtudeController::class, 'approuverAutorisationRecteur']);
-    Route::patch('/autorisations-absence/{id}/signer-recteur', [AutorisationAbsenceController::class, 'signerRecteur']);
-    Route::post('/autorisations-absence/{id}/envoyer-email', [AutorisationAbsenceController::class, 'envoyerEmail']);
-});
-
-Route::middleware('role:vice_recteur')->group(function () {
-    Route::post('/arretes/{id}/envoyer-emails', [ArreteVoyageController::class, 'envoyerEmails']);
-});
-
-Route::get('/arretes/{id}', [ArreteVoyageController::class, 'show']);
-Route::get('/voyages-etudes/{voyageId}/arrete', [ArreteVoyageController::class, 'showByVoyage']);
 });

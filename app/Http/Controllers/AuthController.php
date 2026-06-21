@@ -6,6 +6,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Auth\Events\PasswordReset;
 
 class AuthController extends Controller
 {
@@ -72,14 +74,15 @@ public function register(Request $request)
         'statut'        => 'nullable|in:permanent,non_permanent,contractuel,vacataire',
         'ufr'           => 'nullable|in:SATIC,SDD,ECOMIJ,ISFAR',
         'departement'   => 'nullable|string|max:100',
-        'role'          => 'required|in:ddl,drh,sg_drh,chauffeur,sg_vr,vice_recteur,admin,enseignant,usager',
         'date_embauche' => 'nullable|date',
     ]);
 
-    $qrCode = null;
-    if (in_array($request->role, ['usager', 'enseignant'])) {
-        $qrCode = 'UADB-' . strtoupper(Str::random(8));
-    }
+    // Sécurité : l'inscription publique ne peut créer que usager ou enseignant.
+    // Tous les autres rôles (admin, recteur, vice_recteur, drh, etc.)
+    // doivent être créés par un admin via /admin/utilisateurs.
+    $role = ($request->type_profil === 'PER') ? 'enseignant' : 'usager';
+
+    $qrCode = 'UADB-' . strtoupper(Str::random(8));
 
     $user = User::create([
         'nom'           => $request->nom,
@@ -92,7 +95,7 @@ public function register(Request $request)
         'statut'        => $request->statut,
         'ufr'           => $request->ufr,
         'departement'   => $request->departement,
-        'role'          => $request->role,
+        'role'          => $role,
         'qr_code'       => $qrCode,
         'date_embauche' => $request->date_embauche,
     ]);
@@ -129,5 +132,54 @@ public function register(Request $request)
         ]
     ]);
 }
-    
+   public function forgotPassword(Request $request)
+{
+    $request->validate([
+        'email' => 'required|email',
+    ]);
+
+    $status = Password::sendResetLink(
+        $request->only('email')
+    );
+
+    if ($status === Password::RESET_LINK_SENT) {
+        return response()->json([
+            'message' => 'Un lien de réinitialisation a été envoyé à votre adresse email.'
+        ]);
+    }
+
+    return response()->json([
+        'message' => 'Impossible d\'envoyer le lien. Vérifiez votre adresse email.'
+    ], 422);
+}
+
+public function resetPassword(Request $request)
+{
+    $request->validate([
+        'token'    => 'required',
+        'email'    => 'required|email',
+        'password' => 'required|min:6|confirmed',
+    ]);
+
+    $status = Password::reset(
+        $request->only('email', 'password', 'password_confirmation', 'token'),
+        function ($user, $password) {
+            $user->forceFill([
+                'password' => Hash::make($password),
+            ])->save();
+
+            event(new PasswordReset($user));
+        }
+    );
+
+    if ($status === Password::PASSWORD_RESET) {
+        return response()->json([
+            'message' => 'Mot de passe réinitialisé avec succès.'
+        ]);
+    }
+
+    return response()->json([
+        'message' => 'Ce lien de réinitialisation est invalide ou expiré.'
+    ], 422);
+} 
 }

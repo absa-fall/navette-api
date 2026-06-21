@@ -35,6 +35,10 @@ class AutorisationAbsence extends Model
         'vr_id',
         'date_transmission_vr',
         'statut',
+        'masque_chef_departement',
+'masque_directeur_ufr',
+'masque_recteur',
+'masque_enseignant',
     ];
 
     protected $casts = [

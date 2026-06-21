@@ -10,50 +10,74 @@ use Illuminate\Http\Request;
 
 class ArreteVoyageController extends Controller
 {
-    // RECTEUR — Rédiger et signer l'arrêté
     public function store(Request $request, $voyageId)
-    {
-        $request->validate([
-            'numero'             => 'required|string|max:50',
-            'date_arrete'        => 'required|date',
-            'visas'              => 'required|string',
-            'montant_billet'     => 'required|numeric|min:0',
-            'montant_indemnite'  => 'required|numeric|min:0',
+{
+    $request->validate([
+        'numero'             => 'required|string|max:50',
+        'date_arrete'        => 'required|date',
+        'visas'              => 'required|string',
+        'montant_billet'     => 'required|numeric|min:0',
+        'montant_indemnite'  => 'required|numeric|min:0',
+    ]);
+
+    $voyage = VoyageEtude::findOrFail($voyageId);
+
+    $arrete = ArreteVoyage::create([
+        'voyage_id'          => $voyage->id,
+        'recteur_id'         => auth()->id(),
+        'numero'             => $request->numero,
+        'date_arrete'        => $request->date_arrete,
+        'visas'              => $request->visas,
+        'montant_billet'     => $request->montant_billet,
+        'montant_indemnite'  => $request->montant_indemnite,
+        'signe'              => true,
+        'date_signature'     => now(),
+    ]);
+
+    $voyage->update(['arrete_recteur' => true]);
+
+    $vr = User::where('role', 'vice_recteur')->first();
+    if ($vr) {
+        // Notification
+        Notification::create([
+            'user_id' => $vr->id,
+            'type'    => 'arrete_signe',
+            'titre'   => 'Arrete signe par le Recteur',
+            'message' => 'L\'arrete n°' . $arrete->numero . ' pour le voyage a ' . $voyage->destination . ' a ete signe. Vous pouvez le transmettre aux enseignants beneficiaires.',
+            'lu'      => false,
         ]);
 
-        $voyage = VoyageEtude::findOrFail($voyageId);
-
-        $arrete = ArreteVoyage::create([
-            'voyage_id'          => $voyage->id,
-            'recteur_id'         => auth()->id(),
-            'numero'             => $request->numero,
-            'date_arrete'        => $request->date_arrete,
-            'visas'              => $request->visas,
-            'montant_billet'     => $request->montant_billet,
-            'montant_indemnite'  => $request->montant_indemnite,
-            'signe'              => true,
-            'date_signature'     => now(),
-        ]);
-
-        $voyage->update(['arrete_recteur' => true]);
-
-        $vr = User::where('role', 'vice_recteur')->first();
-        if ($vr) {
-            Notification::create([
-                'user_id' => $vr->id,
-                'type'    => 'arrete_signe',
-                'titre'   => 'Arrete signe par le Recteur',
-                'message' => 'L\'arrete n°' . $arrete->numero . ' pour le voyage a ' . $voyage->destination . ' a ete signe. Vous pouvez le transmettre aux enseignants beneficiaires.',
-                'lu'      => false,
-            ]);
+        // ← AJOUT : Envoi du PDF par mail au VR
+        try {
+            \Mail::to($vr->email)->send(new \App\Mail\ArreteVoyageMail($arrete, null));
+        } catch (\Exception $e) {
+            \Log::error('Erreur envoi mail arrete au VR : ' . $e->getMessage());
         }
-
-        return response()->json([
-            'message' => 'Arrete redige et signe avec succes',
-            'arrete'  => $arrete,
-        ], 201);
+    }
+// Envoyer l'arrêté par mail à chaque bénéficiaire définitif
+    $beneficiairesDefinitifs = $voyage->beneficiaires()->where('dans_liste_definitive', true)->with('enseignant')->get();
+    foreach ($beneficiairesDefinitifs as $b) {
+        if ($b->enseignant && $b->enseignant->email) {
+            try {
+                \Mail::to($b->enseignant->email)->send(new \App\Mail\ArreteVoyageMail($arrete, $b->enseignant));
+            } catch (\Exception $e) {
+                \Log::error('Erreur envoi mail arrete enseignant : ' . $e->getMessage());
+            }
+        }
+        Notification::create([
+            'user_id' => $b->enseignant_id,
+            'type'    => 'arrete_signe',
+            'titre'   => 'Arrete de voyage signe',
+            'message' => 'L\'arrete n°' . $arrete->numero . ' pour le voyage a ' . $voyage->destination . ' a ete signe. Vous pouvez le consulter.',
+            'lu'      => false,
+        ]);
     }
 
+    return response()->json([
+        'message' => 'Arrete redige, signe et envoye au Vice-Recteur par mail',
+        'arrete'  => $arrete,
+    ], 201);
+}
     // Voir un arrêté (toutes les parties prenantes)
     public function show($id)
     {

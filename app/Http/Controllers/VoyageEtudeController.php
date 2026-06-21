@@ -17,51 +17,49 @@ class VoyageEtudeController extends Controller
     // VICE-RECTEUR — Publier liste bénéficiaires
     // → Notifie les CHEFS DE DÉPARTEMENT (pas les enseignants directement)
     // ============================================
-    public function publierListe(Request $request)
-    {
-        $request->validate([
-            'destination'   => 'required|string',
-            'date_debut'    => 'required|date',
-            'date_fin'      => 'required|date|after:date_debut',
-            'description'   => 'nullable|string',
-            'enseignants'   => 'required|array',
-            'enseignants.*' => 'exists:users,id',
+   public function publierListe(Request $request)
+{
+    $request->validate([
+        'date_publication' => 'required|date',
+        'motif'            => 'required|string',
+        'enseignants'      => 'required|array',
+        'enseignants.*'    => 'exists:users,id',
+    ]);
+
+    $voyage = VoyageEtude::create([
+        'vice_recteur_id'  => auth()->id(),
+        'date_publication' => $request->date_publication,
+        'motif'            => $request->motif,
+        'destination'      => $request->motif, // garder pour compatibilité
+        'date_debut'       => $request->date_publication,
+        'date_fin'         => $request->date_publication,
+        'statut_liste'     => 'publiee',
+    ]);
+
+    foreach ($request->enseignants as $enseignantId) {
+        VoyageEtudeBeneficiaire::create([
+            'voyage_id'     => $voyage->id,
+            'enseignant_id' => $enseignantId,
         ]);
-
-        $voyage = VoyageEtude::create([
-            'vice_recteur_id' => auth()->id(),
-            'destination'     => $request->destination,
-            'date_debut'      => $request->date_debut,
-            'date_fin'        => $request->date_fin,
-            'description'     => $request->description,
-            'statut_liste'    => 'publiee',
-        ]);
-
-        foreach ($request->enseignants as $enseignantId) {
-            VoyageEtudeBeneficiaire::create([
-                'voyage_id'     => $voyage->id,
-                'enseignant_id' => $enseignantId,
-            ]);
-        }
-
-        // Notifier les Chefs de Département (pas les enseignants directement)
-        $chefsDept = User::where('role', 'chef_departement')->get();
-        foreach ($chefsDept as $chef) {
-            Notification::create([
-                'user_id'  => $chef->id,
-                'type'     => 'voyage_etude_publie',
-                'titre'    => 'Nouvelle liste de voyage d\'etudes publiee',
-                'message'  => 'Le Vice-Recteur a publie une liste de beneficiaires pour le voyage a ' . $request->destination . '. Veuillez informer les enseignants concernes et recueillir leurs justificatifs.',
-                'lu'       => false,
-            ]);
-        }
-
-        return response()->json([
-            'message' => 'Liste publiee avec succes',
-            'voyage'  => $voyage->load('beneficiaires.enseignant'),
-        ], 201);
     }
 
+    // Notifier les Chefs de Département
+    $chefsDept = User::where('role', 'chef_departement')->get();
+    foreach ($chefsDept as $chef) {
+        Notification::create([
+            'user_id' => $chef->id,
+            'type'    => 'voyage_etude_publie',
+            'titre'   => 'Nouvelle liste de voyage d\'etudes publiee',
+            'message' => 'Le Vice-Recteur a publie une liste de beneficiaires pour : ' . $request->motif . '. Veuillez informer les enseignants concernes.',
+            'lu'      => false,
+        ]);
+    }
+
+    return response()->json([
+        'message' => 'Liste publiee avec succes',
+        'voyage'  => $voyage->load('beneficiaires.enseignant'),
+    ], 201);
+}
     // ============================================
     // CHEF DE DÉPARTEMENT — Notifier les enseignants concernés
     // → Après réception de la liste du VR
@@ -156,38 +154,31 @@ public function masquerVoyage($beneficiaireId)
     }
 
     // ============================================
-    // CHEF DE DÉPARTEMENT — Voir les dossiers reçus des enseignants
   public function dossiersDepartement()
 {
     $user = auth()->user();
 
     if ($user->role === 'directeur_ufr') {
         $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs', 'autorisationAbsence'])
+            ->where('masque_directeur_ufr', false)
             ->where('statut_autorisation', 'envoye_directeur_ufr')
-            ->latest()
-            ->get();
+            ->latest()->get();
     } elseif ($user->role === 'recteur') {
         $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs', 'autorisationAbsence'])
+            ->where('masque_recteur', false)
             ->where('statut_autorisation', 'envoye_recteur')
-            ->latest()
-            ->get();
+            ->latest()->get();
     } else {
-        $chefUFR = auth()->user()->ufr;
+        $chefUFR = $user->ufr;
         $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs', 'autorisationAbsence'])
-            ->whereHas('voyage', function ($q) {
-                $q->whereIn('statut_liste', ['publiee', 'definitive']);
-            })
-            ->whereHas('enseignant', function ($q) use ($chefUFR) {
-                $q->where('ufr', $chefUFR);
-            })
-            ->latest()
-            ->get();
+            ->where('masque_chef_departement', false)
+            ->whereHas('voyage', fn($q) => $q->whereIn('statut_liste', ['publiee', 'definitive']))
+            ->whereHas('enseignant', fn($q) => $q->where('ufr', $chefUFR))
+            ->latest()->get();
     }
 
     return response()->json($dossiers);
 }
-    
-
 
     // ============================================
     // CHEF DE DÉPARTEMENT — Transmettre dossier au VR + Commission
@@ -235,11 +226,9 @@ public function masquerVoyage($beneficiaireId)
 public function destroy($id)
 {
     $voyage = VoyageEtude::findOrFail($id);
-    $voyage->beneficiaires()->delete();
     $voyage->delete();
     return response()->json(['message' => 'Voyage supprime']);
 }
-
 // Supprimer un bénéficiaire/dossier
 public function destroyBeneficiaire($id)
 {
@@ -252,15 +241,15 @@ public function destroyBeneficiaire($id)
     // ============================================
     // VR + COMMISSION — Voir dossiers à valider
     // ============================================
-   public function dossiersAValider()
+  public function dossiersAValider()
 {
+    $user = auth()->user();
+    $champ = $user->role === 'commission' ? 'masque_commission' : 'masque_vice_recteur';
+
     $dossiers = VoyageEtudeBeneficiaire::with([
-        'enseignant', 
-        'voyage', 
-        'justificatifs', 
-        'avis.user',
-        'autorisationAbsence'  
+        'enseignant', 'voyage', 'justificatifs', 'avis.user', 'autorisationAbsence'
     ])
+        ->where($champ, false)
         ->whereIn('statut_justificatif', ['transmis_vr', 'valide', 'incomplet'])
         ->latest()
         ->get()
@@ -593,7 +582,47 @@ public function beneficiaires($id)
 
         return response()->json(['message' => 'Autorisation envoyee au Recteur']);
     }
+// Masquer un voyage pour le rôle connecté
+public function masquerVoyage($id)
+{
+    $beneficiaire = VoyageEtudeBeneficiaire::findOrFail($id);
+    $role = auth()->user()->role;
 
+    $champ = match($role) {
+        'chef_departement' => 'masque_chef_departement',
+        'directeur_ufr'    => 'masque_directeur_ufr',
+        'recteur'          => 'masque_recteur',
+        'vice_recteur'     => 'masque_vice_recteur',
+        'commission'       => 'masque_commission',
+        default            => null,
+    };
+
+    if (!$champ) return response()->json(['message' => 'Role non autorise'], 403);
+
+    $beneficiaire->update([$champ => true]);
+    return response()->json(['message' => 'Masque avec succes']);
+}
+
+// Masquer un dossier justificatif pour le rôle connecté
+public function destroyBeneficiaire($id)
+{
+    $beneficiaire = VoyageEtudeBeneficiaire::findOrFail($id);
+    $role = auth()->user()->role;
+
+    $champ = match($role) {
+        'chef_departement' => 'masque_chef_departement',
+        'directeur_ufr'    => 'masque_directeur_ufr',
+        'recteur'          => 'masque_recteur',
+        'vice_recteur'     => 'masque_vice_recteur',
+        'commission'       => 'masque_commission',
+        default            => null,
+    };
+
+    if (!$champ) return response()->json(['message' => 'Role non autorise'], 403);
+
+    $beneficiaire->update([$champ => true]);
+    return response()->json(['message' => 'Dossier masque avec succes']);
+}
     // ============================================
 // RECTEUR — Approuver l'autorisation de sortie → transmet au VR
 // ============================================
@@ -642,31 +671,31 @@ public function transmettreAutorisationEnseignant($beneficiaireId)
 }
     // ============================================
     // LISTE TOUS LES VOYAGES (VR + Recteur)
-    // ============================================
   public function index()
 {
     $voyages = VoyageEtude::with([
         'beneficiaires.enseignant',
         'beneficiaires.justificatifs',
         'beneficiaires.avis.user',
-        'beneficiaires.autorisationAbsence',  
+        'beneficiaires.autorisationAbsence',
         'viceRecteur'
     ])
         ->latest()
         ->get()
         ->map(function ($voyage) {
             $arr = $voyage->toArray();
-            $arr['beneficiaires'] = $voyage->beneficiaires->map(function ($b) {
-                $arr = $b->toArray();
-                $arr['autorisation_absence_id'] = $b->autorisationAbsence?->id;
-                return $arr;
-            });
+            $arr['beneficiaires'] = $voyage->beneficiaires
+                ->where('masque_vice_recteur', false)
+                ->map(function ($b) {
+                    $arr = $b->toArray();
+                    $arr['autorisation_absence_id'] = $b->autorisationAbsence?->id;
+                    return $arr;
+                })->values();
             return $arr;
         });
 
     return response()->json($voyages);
 }
-
     // ============================================
     // VOIR UN VOYAGE
     // ============================================

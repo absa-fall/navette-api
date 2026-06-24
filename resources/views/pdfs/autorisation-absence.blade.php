@@ -32,8 +32,12 @@
 <body>
 
     <!-- En-tête -->
-    <div class="header">
-        <strong>RÉPUBLIQUE DU SÉNÉGAL</strong><br>
+   <div class="header">
+   @php
+    $logo = base64_encode(file_get_contents(public_path('logo-uadb.png')));
+@endphp
+<img src="data:image/png;base64,{{ $logo }}" style="height: 70px; margin-bottom: 8px;" />
+    <strong>RÉPUBLIQUE DU SÉNÉGAL</strong><br>
         Un Peuple - Un But - Une Foi<br>
         Ministère de l'Enseignement supérieur,<br>
         de la Recherche et de l'Innovation<br>

@@ -15,7 +15,7 @@ class AuthController extends Controller
     {
         $request->validate([
             'email'    => 'required|email',
-            'password' => 'required',
+           'password' => 'required',
         ]);
 
         if ($request->email !== strtolower($request->email)) {
@@ -70,16 +70,14 @@ public function register(Request $request)
         'password'      => 'required|min:6',
         'tel'           => 'nullable|string',
         'matricule'     => 'nullable|string|unique:users,matricule',
-        'type_profil'   => 'nullable|in:PER,PATS,ATR',
+        'type_profil' => 'nullable|in:PER,PATS,ATR,vacataire',
         'statut'        => 'nullable|in:permanent,non_permanent,contractuel,vacataire',
         'ufr'           => 'nullable|in:SATIC,SDD,ECOMIJ,ISFAR',
         'departement'   => 'nullable|string|max:100',
         'date_embauche' => 'nullable|date',
     ]);
 
-    // Sécurité : l'inscription publique ne peut créer que usager ou enseignant.
-    // Tous les autres rôles (admin, recteur, vice_recteur, drh, etc.)
-    // doivent être créés par un admin via /admin/utilisateurs.
+    
     $role = ($request->type_profil === 'PER') ? 'enseignant' : 'usager';
 
     $qrCode = 'UADB-' . strtoupper(Str::random(8));

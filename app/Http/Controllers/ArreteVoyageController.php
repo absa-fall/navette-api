@@ -96,7 +96,15 @@ class ArreteVoyageController extends Controller
 
         return response()->json($arrete);
     }
+public function mesArretes()
+{
+    $arretes = ArreteVoyage::with(['voyage.beneficiaires.enseignant', 'recteur'])
+        ->where('recteur_id', auth()->id())
+        ->latest()
+        ->get();
 
+    return response()->json($arretes);
+}
     // VR — Envoyer l'arrêté par email aux bénéficiaires
     public function envoyerEmails($id)
     {

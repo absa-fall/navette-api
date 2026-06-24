@@ -9,74 +9,88 @@ class Reservation extends Model
 {
     use HasFactory;
 
- protected $fillable = [
-     'user_id',
-    'nom',
-    'prenom',
-    'categorie',
-    'type_profil',
-    'ufr',
-    'ville_depart',
-    'ville_arrivee',
-    'type_trajet',
-    'date_reservation',
-    'heure_reservation',
-    'qr_code',
-    'statut',
-    'chauffeur_id',
-    'validee_montee',
-    'validee_descente',
-    'montant_retenue',
-];
-
-    protected $casts = [
-        'date_reservation' => 'date',
-        'validee_montee' => 'boolean',
-        'validee_descente' => 'boolean',
-        'montant_retenue' => 'decimal:2',
+    protected $fillable = [
+        'user_id',
+        'groupe_id',       // ✅ NOUVEAU : lie aller + retour
+        'nom',
+        'prenom',
+        'categorie',
+        'type_profil',
+        'ufr',
+        'ville_depart',
+        'ville_arrivee',
+        'type_trajet',     // aller | retour | aller_retour (pour affichage)
+        'trajet_sens',     // ✅ NOUVEAU : aller | retour (sens réel de cette ligne)
+        'date_reservation',
+        'heure_reservation',
+        'statut',
+        'motif_refus',     // ✅ NOUVEAU : motif si refusée
+        'chauffeur_id',
+        'validee_montee',
+        'validee_descente',
+        'montant_retenue',
+        'present',
+        'heure_presence',
+        'notification_envoyee',
+        'vehicule_id',
     ];
 
-    // Tarifs selon le trajet
+    protected $casts = [
+        'date_reservation'     => 'date',
+        'validee_montee'       => 'boolean',
+        'validee_descente'     => 'boolean',
+        'present'              => 'boolean',
+        'notification_envoyee' => 'boolean',
+        'montant_retenue'      => 'decimal:2',
+        'heure_presence'       => 'datetime',
+    ];
+
+    // ✅ Tarifs par trajet
     public static function getTarif($villeDepart, $villeArrivee)
     {
-        $trajet = $villeDepart . ' - ' . $villeArrivee;
+        $trajet        = $villeDepart . ' - ' . $villeArrivee;
         $trajetInverse = $villeArrivee . ' - ' . $villeDepart;
-        
+
         $tarifs = [
-            'Dakar - Bambey' => 2000,
-            'Bambey - Dakar' => 2000,
-            'Thies - Bambey' => 1000,
-            'Bambey - Thies' => 1000,
+            'Dakar - Bambey'     => 2000,
+            'Bambey - Dakar'     => 2000,
+            'Thies - Bambey'     => 1000,
+            'Bambey - Thies'     => 1000,
             'Bambey - Ngouniane' => 500,
             'Ngouniane - Bambey' => 500,
+            'Thies - Ngouniane'  => 1000,
+            'Ngouniane - Thies'  => 1000,
         ];
-        
+
         return $tarifs[$trajet] ?? $tarifs[$trajetInverse] ?? 0;
     }
 
-    // Vérifie si le passager doit payer
     public function doitPayer()
     {
-        // Vacataire = gratuit (selon CDC)
         return $this->type_profil !== 'vacataire';
     }
 
-    // Calcule le montant de la retenue
     public function calculerRetenue()
     {
-        if (!$this->doitPayer()) {
-            return 0;
-        }
-        
+        if (!$this->doitPayer()) return 0;
         return self::getTarif($this->ville_depart, $this->ville_arrivee);
+    }
+
+    // Relations
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function chauffeur()
     {
         return $this->belongsTo(User::class, 'chauffeur_id');
     }
-    public function user()
-{
-    return $this->belongsTo(User::class, 'user_id');
-}
+
+    // ✅ Retourne l'autre réservation du même groupe (aller ↔ retour)
+    public function reservationLiee()
+    {
+        return $this->hasOne(Reservation::class, 'groupe_id', 'groupe_id')
+                    ->where('id', '!=', $this->id);
+    }
 }

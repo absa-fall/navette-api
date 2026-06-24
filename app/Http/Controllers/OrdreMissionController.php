@@ -25,7 +25,7 @@ class OrdreMissionController extends Controller
             'vehicule_id' => 'nullable|exists:vehicules,id',
             'date_depart' => 'required|date',
             'heure_depart' => 'nullable|string', 
-          'date_retour' => 'nullable|date|after_or_equal:date_depart',
+          'date_retour' => 'required|date|after_or_equal:date_depart',
             'frais_transport' => 'nullable|string|max:200',
             'indemnite_deplacement' => 'nullable|string|max:200',
             'trajet' => 'nullable|in:dakar_bambey,thies_bambey,bambey_ngouniane,autres',

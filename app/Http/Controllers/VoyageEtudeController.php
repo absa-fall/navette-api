@@ -96,16 +96,6 @@ class VoyageEtudeController extends Controller
 
     return response()->json($beneficiaires);
 }
-public function masquerVoyage($beneficiaireId)
-{
-    $beneficiaire = VoyageEtudeBeneficiaire::where('id', $beneficiaireId)
-        ->where('enseignant_id', auth()->id())
-        ->firstOrFail();
-
-    $beneficiaire->update(['masque_enseignant' => true]);
-
-    return response()->json(['message' => 'Voyage masque de votre historique']);
-}
 
     // ============================================
     // ENSEIGNANT — Soumettre justificatifs au Chef de Département
@@ -169,13 +159,14 @@ public function masquerVoyage($beneficiaireId)
             ->where('statut_autorisation', 'envoye_recteur')
             ->latest()->get();
     } else {
-        $chefUFR = $user->ufr;
-        $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs', 'autorisationAbsence'])
-            ->where('masque_chef_departement', false)
-            ->whereHas('voyage', fn($q) => $q->whereIn('statut_liste', ['publiee', 'definitive']))
-            ->whereHas('enseignant', fn($q) => $q->where('ufr', $chefUFR))
-            ->latest()->get();
-    }
+    $chefUFR = auth()->user()->ufr;
+   $dossiers = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage', 'justificatifs', 'autorisationAbsence'])
+    ->where('masque_chef_departement', false)
+    ->whereHas('voyage', fn($q) => $q->whereIn('statut_liste', ['publiee', 'definitive'])
+        ->where('masque_chef_departement', false))
+    ->whereHas('enseignant', fn($q) => $q->where('ufr', $chefUFR))
+    ->latest()->get();
+}
 
     return response()->json($dossiers);
 }
@@ -226,18 +217,22 @@ public function masquerVoyage($beneficiaireId)
 public function destroy($id)
 {
     $voyage = VoyageEtude::findOrFail($id);
+    $user = auth()->user();
+
+    if ($user->role === 'vice_recteur') {
+        $voyage->update(['masque_vr' => true]);
+        return response()->json(['message' => 'Voyage masqué de votre vue']);
+    }
+
+    if ($user->role === 'chef_departement') {
+        $voyage->update(['masque_chef_departement' => true]);
+        return response()->json(['message' => 'Voyage masqué de votre vue']);
+    }
+
     $voyage->delete();
-    return response()->json(['message' => 'Voyage supprime']);
+    return response()->json(['message' => 'Voyage supprimé']);
 }
-// Supprimer un bénéficiaire/dossier
-public function destroyBeneficiaire($id)
-{
-    $beneficiaire = VoyageEtudeBeneficiaire::findOrFail($id);
-    $beneficiaire->justificatifs()->delete();
-    $beneficiaire->avis()->delete();
-    $beneficiaire->delete();
-    return response()->json(['message' => 'Dossier supprime']);
-}
+
     // ============================================
     // VR + COMMISSION — Voir dossiers à valider
     // ============================================
@@ -333,10 +328,39 @@ public function destroyBeneficiaire($id)
         }
     }
  
-    // Si VR valide → statut valide
-    if ($request->avis === 'valide' && $auteur->role === 'vice_recteur') {
-        $beneficiaire->update(['statut_justificatif' => 'valide']);
+   // Si VR valide → statut valide + valider le rapport lié automatiquement
+if ($request->avis === 'valide' && $auteur->role === 'vice_recteur') {
+    $beneficiaire->update(['statut_justificatif' => 'valide']);
+
+    // Valider automatiquement le rapport de l'enseignant pour ce voyage
+    \App\Models\RapportVoyage::where('enseignant_id', $beneficiaire->enseignant_id)
+        ->where('voyage_id', $beneficiaire->voyage_id)
+        ->where('statut', '!=', 'valide')
+        ->update([
+            'statut'        => 'valide',
+            'commentaire_vr' => $request->commentaire ?? 'Validé automatiquement avec le dossier de voyage',
+        ]);
+// Rejeter aussi le rapport lié
+    \App\Models\RapportVoyage::where('enseignant_id', $beneficiaire->enseignant_id)
+        ->where('voyage_id', $beneficiaire->voyage_id)
+        ->where('statut', '!=', 'valide')
+        ->update([
+            'statut'         => 'rejete',
+            'commentaire_vr' => $request->commentaire ?? 'Rejeté avec le dossier de voyage',
+        ]);
+    // Notifier l'enseignant que son rapport est validé
+    try {
+        Notification::create([
+            'user_id' => $beneficiaire->enseignant_id,
+            'type'    => 'rapport_valide',
+            'titre'   => 'Rapport de voyage validé',
+            'message' => 'Votre rapport de voyage pour ' . $beneficiaire->voyage->destination . ' a été validé par le Vice-Recteur.',
+            'lu'      => false,
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('Notification rapport validé: ' . $e->getMessage());
     }
+}
  
     return response()->json([
         'message' => 'Avis enregistre',
@@ -671,28 +695,38 @@ public function transmettreAutorisationEnseignant($beneficiaireId)
 }
     // ============================================
     // LISTE TOUS LES VOYAGES (VR + Recteur)
-  public function index()
+ public function index()
 {
-    $voyages = VoyageEtude::with([
+    $user = auth()->user();
+
+    $query = VoyageEtude::with([
         'beneficiaires.enseignant',
         'beneficiaires.justificatifs',
         'beneficiaires.avis.user',
         'beneficiaires.autorisationAbsence',
         'viceRecteur'
-    ])
-        ->latest()
-        ->get()
-        ->map(function ($voyage) {
-            $arr = $voyage->toArray();
-            $arr['beneficiaires'] = $voyage->beneficiaires
-                ->where('masque_vice_recteur', false)
-                ->map(function ($b) {
-                    $arr = $b->toArray();
-                    $arr['autorisation_absence_id'] = $b->autorisationAbsence?->id;
-                    return $arr;
-                })->values();
-            return $arr;
-        });
+    ]);
+
+    // Filtre selon le rôle
+    if ($user->role === 'vice_recteur') {
+        $query->where('masque_vr', false);
+    }
+    // Le recteur voit tous les voyages définitifs (pas de filtre masque)
+    if ($user->role === 'recteur') {
+        $query->where('statut_liste', 'definitive');
+    }
+
+    $voyages = $query->latest()->get()->map(function ($voyage) use ($user) {
+        $arr = $voyage->toArray();
+        $arr['beneficiaires'] = $voyage->beneficiaires
+            ->when($user->role === 'vice_recteur', fn($c) => $c->where('masque_vice_recteur', false))
+            ->map(function ($b) {
+                $arr = $b->toArray();
+                $arr['autorisation_absence_id'] = $b->autorisationAbsence?->id;
+                return $arr;
+            })->values();
+        return $arr;
+    });
 
     return response()->json($voyages);
 }

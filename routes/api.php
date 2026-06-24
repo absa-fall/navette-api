@@ -25,22 +25,27 @@ Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
 Route::post('/reservations', [ReservationController::class, 'store']);
 Route::post('/validation/montee', [ReservationController::class, 'validerMontee']);
-Route::post('/validation/descente', [ReservationController::class, 'validerDescente']);
+
 Route::get('/validation/verifier/{qrCode}', [ReservationController::class, 'verifierQR']);
 
 Route::post('/profile/avatar', [ProfileController::class, 'uploadAvatar'])->middleware('auth:sanctum');
 Route::get('/profile/me', [ProfileController::class, 'me'])->middleware('auth:sanctum');
-
+Route::delete('/profile/avatar', [ProfileController::class, 'deleteAvatar'])->middleware('auth:sanctum');
 // ============================================
 // ROUTES PROTÉGÉES
 // ============================================
 
 Route::middleware('auth:sanctum')->group(function () {
 
+    Route::get('/reservations/{id}/statut', [ReservationController::class, 'statut']);
+    
+    
+    Route::post('/reservations', [ReservationController::class, 'store']);
+
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
-
+    
     // Scan QR
     Route::post('/scan/bus', [ReservationController::class, 'scannerBus']);
     Route::middleware('role:chauffeur')->group(function () {
@@ -119,9 +124,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::get('/reservations/chauffeur', [ReservationController::class, 'pourChauffeur']);
     Route::get('/mes-reservations', [ReservationController::class, 'mesReservations']);
+    Route::get('/mes-reservations/export-pdf', [ReservationController::class, 'exporterPdf']);
     Route::delete('/mes-reservations/{id}', [ReservationController::class, 'supprimerMaReservation']);
     Route::patch('/reservations/{id}/montant', [ReservationController::class, 'updateMontant']);
-
+Route::post('/reservations/{id}/annuler', [ReservationController::class, 'annuler']);
     Route::middleware('role:sg_vr,chauffeur,drh,sg_drh,ddl')->group(function () {
         Route::delete('/reservations/{id}', [ReservationController::class, 'destroy']);
     });
@@ -151,14 +157,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/ordres-mission/{id}/signer', [OrdreMissionController::class, 'signer']);
     });
 
-    Route::middleware('role:chauffeur')->group(function () {
-        Route::get('/ordres-mission-chauffeur', [OrdreMissionController::class, 'pourChauffeur']);
-        Route::post('/ordres-mission/{id}/accepter', [OrdreMissionController::class, 'accepterMission']);
-        Route::post('/ordres-mission/{id}/refuser', [OrdreMissionController::class, 'refuserMission']);
-        Route::patch('/ordres-mission/{id}/marquer-recu', [OrdreMissionController::class, 'marquerRecu']);
-        Route::patch('/reservations/{id}/confirmer', [ReservationController::class, 'confirmer']);
-        Route::patch('/reservations/{id}/refuser', [ReservationController::class, 'refuser']);
-    });
+   Route::middleware('role:chauffeur')->group(function () {
+    Route::get('/ordres-mission-chauffeur', [OrdreMissionController::class, 'pourChauffeur']);
+    Route::post('/ordres-mission/{id}/accepter', [OrdreMissionController::class, 'accepterMission']);
+    Route::post('/ordres-mission/{id}/refuser', [OrdreMissionController::class, 'refuserMission']);
+    Route::patch('/ordres-mission/{id}/marquer-recu', [OrdreMissionController::class, 'marquerRecu']);
+    Route::patch('/reservations/{id}/confirmer', [ReservationController::class, 'confirmer']);
+    Route::patch('/reservations/{id}/refuser', [ReservationController::class, 'refuser']);
+    Route::post('/reservations/{id}/reactiver', [ReservationController::class, 'reactiver']); 
+});
 
     // ============================================
     // VOYAGES D'ÉTUDES
@@ -173,13 +180,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Arrêtés — lecture accessible à tous
     Route::get('/arretes/{id}', [ArreteVoyageController::class, 'show']);
+   Route::middleware('role:recteur,vice_recteur,enseignant,chef_departement,directeur_ufr')->group(function () {
     Route::get('/voyages-etudes/{voyageId}/arrete', [ArreteVoyageController::class, 'showByVoyage']);
+});
 
     // --- ENSEIGNANT ---
     Route::middleware('role:enseignant')->group(function () {
         Route::get('/mes-voyages-etudes', [VoyageEtudeController::class, 'mesVoyages']);
         Route::post('/voyages-etudes/beneficiaire/{id}/justificatifs', [VoyageEtudeController::class, 'soumettreJustificatifs']);
-     Route::get('/voyages-etudes/{voyageId}/arrete', [ArreteVoyageController::class, 'showByVoyage']);
+
         Route::patch('/voyages-etudes/beneficiaire/{id}/demander-autorisation', [VoyageEtudeController::class, 'demanderAutorisation']);
         Route::post('/voyages-etudes/beneficiaire/{id}/autorisation-absence', [AutorisationAbsenceController::class, 'store']);
         Route::patch('/voyages-etudes/beneficiaire/{id}/masquer', [VoyageEtudeController::class, 'masquerVoyage']);
@@ -236,6 +245,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/voyages-etudes/beneficiaire/{id}/approuver-autorisation-recteur', [VoyageEtudeController::class, 'approuverAutorisationRecteur']);
         Route::patch('/autorisations-absence/{id}/signer-recteur', [AutorisationAbsenceController::class, 'signerRecteur']);
         Route::post('/autorisations-absence/{id}/envoyer-email', [AutorisationAbsenceController::class, 'envoyerEmail']);
+        Route::get('/arretes', [ArreteVoyageController::class, 'mesArretes']);
     });
 
     // --- VICE-RECTEUR SEUL ---
@@ -247,7 +257,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/voyages-etudes/{id}/notifier-beneficiaires', [VoyageEtudeController::class, 'notifierBeneficiairesDefinitifs']);
         Route::patch('/autorisations-absence/{id}/transmettre-enseignant', [AutorisationAbsenceController::class, 'transmettreEnseignant']);
         Route::post('/arretes/{id}/envoyer-emails', [ArreteVoyageController::class, 'envoyerEmails']);
-        Route::get('/voyages-etudes/{id}', [VoyageEtudeController::class, 'show']); // ← EN DERNIER
+        Route::get('/voyages-etudes/{id}', [VoyageEtudeController::class, 'show']); 
     });
 
 });

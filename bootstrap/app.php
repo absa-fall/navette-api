@@ -13,17 +13,18 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        $middleware->statefulApi();
-        $middleware->alias([
-            'role' => \App\Http\Middleware\CheckRole::class,
-        ]);
-        $middleware->redirectGuestsTo(function ($request) {
-            if ($request->is('api/*') || $request->expectsJson()) {
-                return null;
-            }
-            return route('login');
-        });
-    })
+    $middleware->append(\App\Http\Middleware\HandleCors::class);
+    $middleware->statefulApi();
+    $middleware->alias([
+        'role' => \App\Http\Middleware\CheckRole::class,
+    ]);
+    $middleware->redirectGuestsTo(function ($request) {
+        if ($request->is('api/*') || $request->expectsJson()) {
+            return null;
+        }
+        return route('login');
+    });
+})
     ->withExceptions(function (Exceptions $exceptions) {
         $exceptions->render(function (AuthenticationException $e, $request) {
             if ($request->is('api/*') || $request->expectsJson()) {

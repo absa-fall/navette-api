@@ -35,8 +35,7 @@ class VoyageEtude extends Model
 'masque_recteur'          => 'boolean',
 'masque_directeur_ufr'    => 'boolean',
 'masque_commission'       => 'boolean',
-];
-    public function viceRecteur()
+];public function viceRecteur()
     {
         return $this->belongsTo(User::class, 'vice_recteur_id');
     }
@@ -44,5 +43,10 @@ class VoyageEtude extends Model
     public function beneficiaires()
     {
         return $this->hasMany(VoyageEtudeBeneficiaire::class, 'voyage_id');
+    }
+
+    public function arrete()
+    {
+        return $this->hasOne(ArreteVoyage::class, 'voyage_id');
     }
 }

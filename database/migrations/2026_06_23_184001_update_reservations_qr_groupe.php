@@ -9,7 +9,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // ✅ ÉTAPE 1 : Ajouter les nouvelles colonnes
+        //  ÉTAPE 1 : Ajouter les nouvelles colonnes
         Schema::table('reservations', function (Blueprint $table) {
 
             if (!Schema::hasColumn('reservations', 'user_id')) {

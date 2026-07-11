@@ -233,7 +233,7 @@ class ReservationController extends Controller
             . Carbon::parse($reservation->date_reservation)->format('d/m/Y')
             . ' (' . $reservation->ville_depart . ' → ' . $reservation->ville_arrivee . ').';
 
-        // ✅ Notifier le chauffeur
+        // Notifier le chauffeur
         if ($reservation->chauffeur_id) {
             Notification::create([
                 'user_id' => $reservation->chauffeur_id,
@@ -343,16 +343,13 @@ class ReservationController extends Controller
         ]);
     }
 
-    // ============================================================
-    // MES RÉSERVATIONS : Liste du passager connecté
-    // ✅ CORRECTION : filtre les réservations masquées
-    // ============================================================
+    
     public function mesReservations()
     {
         $user = auth()->user();
 
         $reservations = Reservation::where('user_id', $user->id)
-            ->where('masquee_passager', false) // ✅ Ne pas montrer les masquées
+            ->where('masquee_passager', false) 
             ->orderBy('date_reservation', 'desc')
             ->orderBy('trajet_sens')
             ->get();

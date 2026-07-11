@@ -201,9 +201,11 @@ Route::post('/reservations/{id}/annuler', [ReservationController::class, 'annule
         Route::patch('/voyages-etudes/beneficiaire/{id}/autorisation-sortie', [VoyageEtudeController::class, 'autorisationSortie']);
         Route::get('/voyages-etudes/{id}/beneficiaires', [VoyageEtudeController::class, 'beneficiaires']);
         Route::patch('/autorisations-absence/{id}/avis-chef-departement', [AutorisationAbsenceController::class, 'avisChefDepartement']);
-        Route::delete('/autorisations-absence/{id}', [AutorisationAbsenceController::class, 'destroy']);
     });
-
+// --- SUPPRESSION HISTORIQUE AUTORISATION (multi-rôles) ---
+Route::middleware('role:chef_departement,directeur_ufr,recteur,enseignant')->group(function () {
+    Route::delete('/autorisations-absence/{id}', [AutorisationAbsenceController::class, 'destroy']);
+});
     // --- DIRECTEUR UFR ---
     Route::middleware('role:directeur_ufr')->group(function () {
         Route::patch('/voyages-etudes/beneficiaire/{id}/envoyer-autorisation-recteur', [VoyageEtudeController::class, 'envoyerAutorisationRecteur']);
@@ -246,6 +248,7 @@ Route::post('/reservations/{id}/annuler', [ReservationController::class, 'annule
         Route::patch('/autorisations-absence/{id}/signer-recteur', [AutorisationAbsenceController::class, 'signerRecteur']);
         Route::post('/autorisations-absence/{id}/envoyer-email', [AutorisationAbsenceController::class, 'envoyerEmail']);
         Route::get('/arretes', [ArreteVoyageController::class, 'mesArretes']);
+        Route::delete('/arretes/{id}', [ArreteVoyageController::class, 'destroy']);
     });
 
     // --- VICE-RECTEUR SEUL ---

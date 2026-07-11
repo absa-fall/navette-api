@@ -54,6 +54,7 @@ class ArreteVoyageController extends Controller
             \Log::error('Erreur envoi mail arrete au VR : ' . $e->getMessage());
         }
     }
+    
 // Envoyer l'arrêté par mail à chaque bénéficiaire définitif
     $beneficiairesDefinitifs = $voyage->beneficiaires()->where('dans_liste_definitive', true)->with('enseignant')->get();
     foreach ($beneficiairesDefinitifs as $b) {
@@ -77,6 +78,20 @@ class ArreteVoyageController extends Controller
         'message' => 'Arrete redige, signe et envoye au Vice-Recteur par mail',
         'arrete'  => $arrete,
     ], 201);
+}
+public function destroy($id)
+{
+    $arrete = ArreteVoyage::findOrFail($id);
+    $voyage = VoyageEtude::find($arrete->voyage_id);
+
+    $arrete->delete();
+
+    // On repasse le voyage en "non signé" pour qu'il redevienne éditable
+    if ($voyage) {
+        $voyage->update(['arrete_recteur' => false]);
+    }
+
+    return response()->json(['message' => 'Arrete supprime avec succes']);
 }
     // Voir un arrêté (toutes les parties prenantes)
     public function show($id)

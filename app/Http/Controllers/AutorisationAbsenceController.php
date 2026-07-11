@@ -255,9 +255,9 @@ class AutorisationAbsenceController extends Controller
     // ============================================
     public function show($id)
     {
-        $autorisation = AutorisationAbsence::with([
-            'enseignant', 'chefDepartement', 'directeurUfr', 'recteur', 'vr', 'beneficiaire.voyage'
-        ])->findOrFail($id);
+       $autorisation = AutorisationAbsence::with([
+    'enseignant', 'chefDepartement', 'directeurUfr', 'recteur', 'vr', 'beneficiaire.voyage'
+])->findOrFail($id);
 
         return response()->json($autorisation);
     }

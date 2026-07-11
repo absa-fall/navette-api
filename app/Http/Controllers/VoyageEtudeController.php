@@ -699,13 +699,14 @@ public function transmettreAutorisationEnseignant($beneficiaireId)
 {
     $user = auth()->user();
 
-    $query = VoyageEtude::with([
-        'beneficiaires.enseignant',
-        'beneficiaires.justificatifs',
-        'beneficiaires.avis.user',
-        'beneficiaires.autorisationAbsence',
-        'viceRecteur'
-    ]);
+   $query = VoyageEtude::with([
+    'beneficiaires.enseignant',
+    'beneficiaires.justificatifs',
+    'beneficiaires.avis.user',
+    'beneficiaires.autorisationAbsence',
+    'viceRecteur',
+    'arrete'
+]);
 
     // Filtre selon le rôle
     if ($user->role === 'vice_recteur') {

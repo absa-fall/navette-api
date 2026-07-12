@@ -165,11 +165,12 @@ Route::post('/reservations/{id}/annuler', [ReservationController::class, 'annule
     Route::patch('/reservations/{id}/confirmer', [ReservationController::class, 'confirmer']);
     Route::patch('/reservations/{id}/refuser', [ReservationController::class, 'refuser']);
     Route::post('/reservations/{id}/reactiver', [ReservationController::class, 'reactiver']); 
+    Route::post('/reservations/{id}/annuler-chauffeur', [ReservationController::class, 'annulerChauffeur']);
 });
 
     // ============================================
     // VOYAGES D'ÉTUDES
-    // RÈGLE : routes statiques AVANT routes avec {id}
+    
     // ============================================
 
     Route::get('/voyages/eligibilite', [VoyageEtudeController::class, 'verifierEligibilite']);

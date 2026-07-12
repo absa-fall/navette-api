@@ -611,15 +611,15 @@ public function masquerVoyage($id)
 {
     $beneficiaire = VoyageEtudeBeneficiaire::findOrFail($id);
     $role = auth()->user()->role;
-
-    $champ = match($role) {
-        'chef_departement' => 'masque_chef_departement',
-        'directeur_ufr'    => 'masque_directeur_ufr',
-        'recteur'          => 'masque_recteur',
-        'vice_recteur'     => 'masque_vice_recteur',
-        'commission'       => 'masque_commission',
-        default            => null,
-    };
+$champ = match($role) {
+    'chef_departement' => 'masque_chef_departement',
+    'directeur_ufr'    => 'masque_directeur_ufr',
+    'recteur'          => 'masque_recteur',
+    'vice_recteur'     => 'masque_vice_recteur',
+    'commission'       => 'masque_commission',
+    'enseignant'       => 'masque_enseignant',
+    default            => null,
+};
 
     if (!$champ) return response()->json(['message' => 'Role non autorise'], 403);
 

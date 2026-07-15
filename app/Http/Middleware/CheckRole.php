@@ -13,6 +13,11 @@ class CheckRole
             return response()->json(['message' => 'Non authentifié'], 401);
         }
 
+        // L'admin a toujours accès, quel que soit le(s) rôle(s) exigé(s) par la route
+        if ($request->user()->role === 'admin') {
+            return $next($request);
+        }
+
         if (!in_array($request->user()->role, $roles)) {
             return response()->json(['message' => 'Accès refusé'], 403);
         }

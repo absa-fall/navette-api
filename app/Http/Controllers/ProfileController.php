@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-
+use Illuminate\Support\Facades\Hash;
 class ProfileController extends Controller
 {
    public function me(Request $request)
@@ -70,4 +70,26 @@ public function deleteAvatar(Request $request)
         ], 500);
     }
 }
+public function changePassword(Request $request)
+   {
+        $request->validate([
+            'current_password' => 'required',
+            'new_password'     => [
+                'required',
+                'confirmed',
+                'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&._\-#])[A-Za-z\d@$!%*?&._\-#]{8,}$/'
+            ],
+        ], [
+            'new_password.regex' => 'Le mot de passe doit contenir au moins 8 caractères, une majuscule, une minuscule, un chiffre et un caractère spécial (@$!%*?&._-#)',
+        ]);
+        $user = $request->user();
+
+        if (!Hash::check($request->current_password, $user->password)) {
+            return response()->json(['message' => 'Mot de passe actuel incorrect'], 422);
+        }
+
+        $user->update(['password' => Hash::make($request->new_password)]);
+
+        return response()->json(['message' => 'Mot de passe modifié avec succès']);
+   }
 }

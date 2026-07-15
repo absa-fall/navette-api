@@ -27,10 +27,11 @@ Route::post('/reservations', [ReservationController::class, 'store']);
 Route::post('/validation/montee', [ReservationController::class, 'validerMontee']);
 
 Route::get('/validation/verifier/{qrCode}', [ReservationController::class, 'verifierQR']);
-
+Route::get('/navettes/prochaines', [OrdreMissionController::class, 'prochainesNavettes']);
 Route::post('/profile/avatar', [ProfileController::class, 'uploadAvatar'])->middleware('auth:sanctum');
 Route::get('/profile/me', [ProfileController::class, 'me'])->middleware('auth:sanctum');
 Route::delete('/profile/avatar', [ProfileController::class, 'deleteAvatar'])->middleware('auth:sanctum');
+Route::put('/profile/password', [ProfileController::class, 'changePassword'])->middleware('auth:sanctum');
 // ============================================
 // ROUTES PROTÉGÉES
 // ============================================
@@ -91,18 +92,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/notifications/toutes', [NotificationController::class, 'supprimerToutes']);
     Route::patch('/notifications/{id}/lu', [NotificationController::class, 'marquerLu']);
     Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
-
-    // ============================================
-    // USERS (admin)
-    // ============================================
-    Route::middleware('role:admin')->group(function () {
-        Route::get('/users', [UserController::class, 'index']);
-        Route::post('/users', [UserController::class, 'store']);
-        Route::get('/users/{id}', [UserController::class, 'show']);
-        Route::put('/users/{id}', [UserController::class, 'update']);
-        Route::patch('/users/{id}/toggle-active', [UserController::class, 'toggleActive']);
-    });
-
+Route::middleware('role:admin,ddl')->group(function () {
+    Route::get('/users', [UserController::class, 'index']);
+    Route::post('/users', [UserController::class, 'store']);
+    Route::get('/users/{id}', [UserController::class, 'show']);
+    Route::put('/users/{id}', [UserController::class, 'update']);
+    Route::delete('/users/{id}', [UserController::class, 'destroy']);
+    Route::patch('/users/{id}/toggle-active', [UserController::class, 'toggleActive']);
+});
     Route::get('/chauffeurs', [UserController::class, 'chauffeurs']);
     Route::get('/drhs', [UserController::class, 'drhs']);
     Route::get('/enseignants-permanents', [UserController::class, 'enseignantsPermanents']);
@@ -113,7 +110,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/vehicules/disponibles', [VehiculeController::class, 'disponibles']);
     Route::get('/vehicules', [VehiculeController::class, 'index']);
     Route::get('/vehicules/{id}', [VehiculeController::class, 'show']);
-    Route::middleware('role:admin')->group(function () {
+    Route::middleware('role:ddl')->group(function () {
         Route::post('/vehicules', [VehiculeController::class, 'store']);
         Route::put('/vehicules/{id}', [VehiculeController::class, 'update']);
         Route::delete('/vehicules/{id}', [VehiculeController::class, 'destroy']);
@@ -132,16 +129,20 @@ Route::post('/reservations/{id}/annuler', [ReservationController::class, 'annule
         Route::delete('/reservations/{id}', [ReservationController::class, 'destroy']);
     });
 
-    // ============================================
-    // ORDRES DE MISSION
-    // ============================================
-    Route::get('/ordres-mission', [OrdreMissionController::class, 'index']);
-    Route::get('/ordres-mission/{id}', [OrdreMissionController::class, 'show']);
-    Route::delete('/ordres-mission/{id}/historique', [OrdreMissionController::class, 'supprimerHistorique']);
-    Route::post('/ordres-mission/{id}/masquer', [OrdreMissionController::class, 'supprimerHistorique']);
+   Route::get('/ordres-mission/ma-mission-active', [OrdreMissionController::class, 'maMissionActive']);
+Route::get('/ordres-mission/mes-incidents', [OrdreMissionController::class, 'mesIncidents']);
+Route::get('/ordres-mission/incidents-en-attente-drh', [OrdreMissionController::class, 'incidentsEnAttenteDrh']);
+Route::get('/ordres-mission', [OrdreMissionController::class, 'index']);
+Route::delete('/ordres-mission/{id}/historique', [OrdreMissionController::class, 'supprimerHistorique']);
+Route::post('/ordres-mission/{id}/masquer', [OrdreMissionController::class, 'supprimerHistorique']);
+Route::post('/ordres-mission/{id}/signaler-incident', [OrdreMissionController::class, 'signalerIncident']);
+Route::post('/ordres-mission/{id}/transmettre-incident-drh', [OrdreMissionController::class, 'transmettreIncidentDrh']);
+Route::post('/ordres-mission/{id}/repondre-incident-ddl', [OrdreMissionController::class, 'repondreIncidentDdl']);
+Route::get('/ordres-mission/{id}', [OrdreMissionController::class, 'show']);
 
     Route::middleware('role:ddl')->group(function () {
         Route::post('/ordres-mission', [OrdreMissionController::class, 'store']);
+        Route::post('/ordres-mission/{id}/transmettre', [OrdreMissionController::class, 'transmettre']);
         Route::get('/mes-ordres', [OrdreMissionController::class, 'mesOrdres']);
         Route::delete('/ordres-mission/{id}', [OrdreMissionController::class, 'destroy']);
         Route::put('/ordres-mission/{id}', [OrdreMissionController::class, 'update']);
@@ -185,16 +186,16 @@ Route::post('/reservations/{id}/annuler', [ReservationController::class, 'annule
     Route::get('/voyages-etudes/{voyageId}/arrete', [ArreteVoyageController::class, 'showByVoyage']);
 });
 
-    // --- ENSEIGNANT ---
-    Route::middleware('role:enseignant')->group(function () {
-        Route::get('/mes-voyages-etudes', [VoyageEtudeController::class, 'mesVoyages']);
-        Route::post('/voyages-etudes/beneficiaire/{id}/justificatifs', [VoyageEtudeController::class, 'soumettreJustificatifs']);
+  Route::middleware('role:enseignant')->group(function () {
+    Route::get('/mes-voyages-etudes', [VoyageEtudeController::class, 'mesVoyages']);
+    Route::post('/voyages-etudes/beneficiaire/{id}/justificatifs', [VoyageEtudeController::class, 'soumettreJustificatifs']);
 
-        Route::patch('/voyages-etudes/beneficiaire/{id}/demander-autorisation', [VoyageEtudeController::class, 'demanderAutorisation']);
-        Route::post('/voyages-etudes/beneficiaire/{id}/autorisation-absence', [AutorisationAbsenceController::class, 'store']);
-        Route::patch('/voyages-etudes/beneficiaire/{id}/masquer', [VoyageEtudeController::class, 'masquerVoyage']);
-    });
-
+    Route::patch('/voyages-etudes/beneficiaire/{id}/demander-autorisation', [VoyageEtudeController::class, 'demanderAutorisation']);
+    Route::post('/voyages-etudes/beneficiaire/{id}/autorisation-absence', [AutorisationAbsenceController::class, 'store']);
+    Route::patch('/voyages-etudes/beneficiaire/{id}/masquer', [VoyageEtudeController::class, 'masquerVoyage']);
+    Route::patch('/autorisations-absence/{id}/signer', [AutorisationAbsenceController::class, 'signer']);
+    Route::patch('/autorisations-absence/{id}/transmettre-vers-chef', [AutorisationAbsenceController::class, 'transmettreVersChefDepartement']);
+});
     // --- CHEF DE DÉPARTEMENT ---
     Route::middleware('role:chef_departement')->group(function () {
         Route::post('/voyages-etudes/{id}/notifier-enseignants', [VoyageEtudeController::class, 'notifierEnseignants']);
@@ -214,18 +215,17 @@ Route::middleware('role:chef_departement,directeur_ufr,recteur,enseignant')->gro
     });
 
     // --- CHEF DÉPARTEMENT + DIRECTEUR UFR + RECTEUR ---
-    // IMPORTANT : route statique "dossiers-departement" AVANT les {id}
+    
     Route::middleware('role:chef_departement,directeur_ufr,recteur')->group(function () {
         Route::get('/voyages-etudes/dossiers-departement', [VoyageEtudeController::class, 'dossiersDepartement']);
     });
 
-    // --- VR + COMMISSION ---
-    // IMPORTANT : route statique "dossiers-a-valider" AVANT les {id}
-    Route::middleware('role:vice_recteur,commission')->group(function () {
-        Route::get('/voyages-etudes/dossiers-a-valider', [VoyageEtudeController::class, 'dossiersAValider']);
-        Route::patch('/voyages-etudes/beneficiaire/{id}/avis', [VoyageEtudeController::class, 'donnerAvis']);
-    });
-
+    
+Route::middleware('role:vice_recteur,commission')->group(function () {
+    Route::get('/voyages-etudes/dossiers-a-valider', [VoyageEtudeController::class, 'dossiersAValider']);
+    Route::patch('/voyages-etudes/beneficiaire/{id}/avis', [VoyageEtudeController::class, 'donnerAvis']);
+    Route::get('/voyages-etudes/listes-publiees', [VoyageEtudeController::class, 'listesPubliees']);
+});
     // --- VOIR AUTORISATION SORTIE (multi-rôles) ---
     Route::middleware('role:enseignant,chef_departement,directeur_ufr,recteur,vice_recteur')->group(function () {
         Route::get('/voyages-etudes/beneficiaire/{id}/autorisation-sortie', [VoyageEtudeController::class, 'voirAutorisationSortie']);
@@ -252,16 +252,20 @@ Route::middleware('role:chef_departement,directeur_ufr,recteur,enseignant')->gro
         Route::delete('/arretes/{id}', [ArreteVoyageController::class, 'destroy']);
     });
 
-    // --- VICE-RECTEUR SEUL ---
-    
+   // --- VICE-RECTEUR SEUL ---
     Route::middleware('role:vice_recteur')->group(function () {
         Route::post('/voyages-etudes', [VoyageEtudeController::class, 'publierListe']);
+        Route::patch('/voyages-etudes/{id}/transmettre', [VoyageEtudeController::class, 'transmettreListe']);
         Route::post('/voyages-etudes/{id}/ajouter-beneficiaire', [VoyageEtudeController::class, 'ajouterBeneficiaire']);
         Route::post('/voyages-etudes/{id}/liste-definitive', [VoyageEtudeController::class, 'publierListeDefinitive']);
         Route::post('/voyages-etudes/{id}/notifier-beneficiaires', [VoyageEtudeController::class, 'notifierBeneficiairesDefinitifs']);
         Route::patch('/autorisations-absence/{id}/transmettre-enseignant', [AutorisationAbsenceController::class, 'transmettreEnseignant']);
         Route::post('/arretes/{id}/envoyer-emails', [ArreteVoyageController::class, 'envoyerEmails']);
-        Route::get('/voyages-etudes/{id}', [VoyageEtudeController::class, 'show']); 
+    });
+
+    // --- VOIR UN VOYAGE (détail) — VR + Commission + Chef Département ---
+    Route::middleware('role:vice_recteur,commission,chef_departement')->group(function () {
+        Route::get('/voyages-etudes/{id}', [VoyageEtudeController::class, 'show']);
     });
 
 });

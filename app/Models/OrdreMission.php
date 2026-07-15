@@ -28,7 +28,10 @@ class OrdreMission extends Model
     'frais_transport',
     'indemnite_deplacement',
     'statut_chauffeur',
-    // Champs calcul et statut
+    'incident',
+'incident_motif',
+'incident_date',
+'incident_transmis_drh',
     'trajet',
     'trajet_autre',
     'montant_trajet',
@@ -37,17 +40,26 @@ class OrdreMission extends Model
     'signature_sg_drh',
     'date_signature',
     'commentaire_rejet',
-    // Champs masquage historique
     'masque_ddl',
     'masque_drh',
     'masque_sg_drh',
     'masque_chauffeur',
+    'masque_admin',
+    'incident_repondu_drh',
+'reponse_drh',
+'reponse_drh_date',
 ];
     protected $casts = [
         'signature_sg_drh' => 'boolean',
         'date_depart' => 'date',
         'date_retour' => 'date',
         'date_signature' => 'datetime',
+        'masque_admin' => 'boolean',
+        'incident' => 'boolean',
+'incident_date' => 'datetime',
+'incident_transmis_drh' => 'boolean',
+'incident_repondu_drh' => 'boolean',
+'reponse_drh_date' => 'datetime',
     ];
 
     protected $attributes = [

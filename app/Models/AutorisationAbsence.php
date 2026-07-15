@@ -17,6 +17,7 @@ class AutorisationAbsence extends Model
         'fonction',
         'ufr_departement',
         'motif_mission',
+        'justificatif',
         'lieu_deplacement',
         'periode_debut',
         'periode_fin',
@@ -56,7 +57,12 @@ class AutorisationAbsence extends Model
         'fonction' => 'Enseignant-Chercheur',
         'statut'   => 'soumise',
     ];
+protected $appends = ['justificatif_url'];
 
+public function getJustificatifUrlAttribute()
+{
+    return $this->justificatif ? asset('storage/' . $this->justificatif) : null;
+}
     public function beneficiaire()
     {
         return $this->belongsTo(VoyageEtudeBeneficiaire::class, 'beneficiaire_id');

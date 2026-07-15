@@ -8,6 +8,7 @@ class VoyageEtude extends Model
 {
     protected $table = 'voyages_etudes';
 
+
     protected $fillable = [
     'vice_recteur_id',
     'destination',
@@ -17,25 +18,28 @@ class VoyageEtude extends Model
     'statut_liste',
     'masque_vr',
     'masque_chef_departement',
-
-'masque_recteur',          
-'masque_directeur_ufr',    
-'masque_commission',      
-'date_publication',        
-'motif',                   
+    'masque_recteur',          
+    'masque_directeur_ufr',    
+    'masque_commission',      
+    'date_publication',        
+    'motif',                   
     'arrete_recteur',
+    'enseignants_notifies',
+    'masque_admin',   // AJOUT
 ];
 
-   protected $casts = [
+protected $casts = [
     'date_debut'    => 'date',
     'date_fin'      => 'date',
     'arrete_recteur' => 'boolean',
     'masque_vr'     => 'boolean',  
     'masque_chef_departement' => 'boolean',
-'masque_recteur'          => 'boolean',
-'masque_directeur_ufr'    => 'boolean',
-'masque_commission'       => 'boolean',
-];public function viceRecteur()
+    'masque_recteur'          => 'boolean',
+    'masque_directeur_ufr'    => 'boolean',
+    'masque_commission'       => 'boolean',
+    'masque_admin'            => 'boolean',  
+];
+public function viceRecteur()
     {
         return $this->belongsTo(User::class, 'vice_recteur_id');
     }

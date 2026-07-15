@@ -80,19 +80,12 @@ class ArreteVoyageController extends Controller
     ], 201);
 }
 public function destroy($id)
-{
-    $arrete = ArreteVoyage::findOrFail($id);
-    $voyage = VoyageEtude::find($arrete->voyage_id);
+    {
+        $arrete = ArreteVoyage::findOrFail($id);
+        $arrete->delete();
 
-    $arrete->delete();
-
-    // On repasse le voyage en "non signé" pour qu'il redevienne éditable
-    if ($voyage) {
-        $voyage->update(['arrete_recteur' => false]);
+        return response()->json(['message' => 'Arrete supprime avec succes']);
     }
-
-    return response()->json(['message' => 'Arrete supprime avec succes']);
-}
     // Voir un arrêté (toutes les parties prenantes)
     public function show($id)
     {

@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 
 class RegistreTrajetController extends Controller
 {
-    // Chauffeur ouvre le registre AVANT le trajet (quand il recoit l'OM signe)
+    
     public function store(Request $request)
     {
         $request->validate([

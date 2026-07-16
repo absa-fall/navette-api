@@ -6,6 +6,7 @@ use App\Models\OrdreMission;
 use App\Models\Vehicule;
 use App\Models\User;
 use App\Models\Notification;
+use App\Models\Reservation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -124,16 +125,19 @@ public function signalerIncident(Request $request, $id)
     $chauffeur = auth()->user();
 
     $ordre->update([
-    'incident' => true,
-    'incident_motif' => $request->motif,
-    'incident_date' => now(),
-    'incident_transmis_drh' => false,
-    'statut' => 'incident',
-]);
-if ($ordre->vehicule_id) {
-    Vehicule::where('id', $ordre->vehicule_id)->update(['etat' => 'en_panne']);
-}
+        'incident' => true,
+        'incident_motif' => $request->motif,
+        'incident_date' => now(),
+        'incident_transmis_drh' => false,
+        'incident_repondu_drh' => false,
+        'reponse_drh' => null,
+        'reponse_drh_date' => null,
+        'statut' => 'incident',
+    ]);
 
+    if ($ordre->vehicule_id) {
+        Vehicule::where('id', $ordre->vehicule_id)->update(['etat' => 'en_panne']);
+    }
 
     if ($ordre->ddl_id) {
         Notification::create([
@@ -146,7 +150,7 @@ if ($ordre->vehicule_id) {
         ]);
     }
 
-     $sgVr = User::where('role', 'sg_vr')->first();
+    $sgVr = User::where('role', 'sg_vr')->first();
     if ($sgVr) {
         Notification::create([
             'user_id' => $sgVr->id,
@@ -158,7 +162,7 @@ if ($ordre->vehicule_id) {
         ]);
     }
 
-      Notification::create([
+    Notification::create([
         'user_id' => $chauffeur->id,
         'type' => 'incident_recu',
         'titre' => 'Incident reçu',
@@ -167,12 +171,42 @@ if ($ordre->vehicule_id) {
         'lu' => false,
     ]);
 
+    // ✅ NOUVEAU : Notifier tous les passagers ayant une réservation active
+    // (aller et/ou retour) pour cette mission, afin qu'ils sachent que le
+    // bus est immobilisé et que leur trajet est impacté.
+    $passagersIds = Reservation::whereDate('date_reservation', $ordre->date_depart)
+        ->whereIn('statut', ['en_attente_confirmation', 'confirmee', 'en_cours'])
+        ->pluck('user_id')
+        ->unique();
+
+    foreach ($passagersIds as $passagerId) {
+        Notification::create([
+            'user_id' => $passagerId,
+            'type'    => 'incident_mission_passager',
+            'titre'   => 'Incident sur votre navette',
+            'message' => "Le bus prévu vers {$ordre->destination} a rencontré un incident. Votre trajet pourrait être retardé ou annulé. Motif : {$request->motif}",
+            'ordre_id'=> $ordre->id,
+            'lu'      => false,
+        ]);
+    }
+
     return response()->json([
-        'message' => 'Incident signalé. Le DDL et le SG VR ont été notifiés.',
+        'message' => 'Incident signalé. Le DDL, le SG VR et les passagers ont été notifiés.',
         'ordre' => $ordre,
     ]);
 }
+// DDL voit les incidents de ses missions, pas encore transmis au DRH
+public function mesIncidents()
+{
+    $incidents = OrdreMission::where('ddl_id', auth()->id())
+        ->where('incident', true)
+        ->where('incident_transmis_drh', false)
+        ->with(['chauffeur', 'vehicule'])
+        ->orderByDesc('incident_date')
+        ->get();
 
+    return response()->json($incidents);
+}
 
 public function transmettreIncidentDrh($id)
 {
@@ -789,29 +823,36 @@ public function prochainesNavettes()
 
     return response()->json($navettes);
 }
-    public function supprimerHistorique(Request $request, $id)
-    {
-        $ordre = OrdreMission::findOrFail($id);
-        $user = auth()->user();
+  public function supprimerHistorique(Request $request, $id)
+{
+    $ordre = OrdreMission::findOrFail($id);
+    $user = auth()->user();
 
-        if ($user->role === 'ddl' && $ordre->ddl_id === $user->id) {
-            $ordre->update(['masque_ddl' => true]);
-            return response()->json(['message' => 'Demande masquée de votre vue']);
-        }
-
-        $champ = match($user->role) {
-            'drh' => 'masque_drh',
-            'sg_drh' => 'masque_sg_drh',
-            'chauffeur' => 'masque_chauffeur',
-            default => null
-        };
-
-        if (!$champ) {
-            return response()->json(['message' => 'Non autorisé'], 403);
-        }
-
-        $ordre->update([$champ => true]);
-
-        return response()->json(['message' => 'Supprimé de votre historique']);
+    if ($user->role === 'ddl' && $ordre->ddl_id === $user->id) {
+        $ordre->update(['masque_ddl' => true]);
+        return response()->json(['message' => 'Demande masquée de votre vue']);
     }
+
+    $champ = match($user->role) {
+        'drh' => 'masque_drh',
+        'sg_drh' => 'masque_sg_drh',
+        'chauffeur' => 'masque_chauffeur',
+        default => null
+    };
+
+    if (!$champ) {
+        return response()->json(['message' => 'Non autorisé'], 403);
+    }
+
+    // Empêche de masquer un incident tant que le DRH n'y a pas répondu
+    if ($champ === 'masque_drh' && $ordre->incident && !$ordre->incident_repondu_drh) {
+        return response()->json([
+            'message' => 'Vous devez répondre à l\'incident avant de pouvoir le masquer'
+        ], 403);
+    }
+
+    $ordre->update([$champ => true]);
+
+    return response()->json(['message' => 'Supprimé de votre historique']);
+}
 }

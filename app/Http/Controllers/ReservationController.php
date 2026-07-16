@@ -26,84 +26,96 @@ class ReservationController extends Controller
     // ============================================================
     // STORE : Créer une réservation (1 ou 2 lignes si aller_retour)
     // ============================================================
-    public function store(Request $request)
-    {
-        $request->validate([
-            'nom'               => 'required|string|max:100',
-            'prenom'            => 'required|string|max:100',
-            'categorie'         => 'required|string|in:PER,PATS,ATR,Vacataire',
-            'type_profil'       => 'required|string|in:permanent,non_permanent,contractuel,vacataire',
-            'ufr'               => 'required|string|max:100',
-            'type_trajet'       => 'required|in:aller,retour,aller_retour',
-            'ville_depart'      => 'required|string|max:100',
-            'ville_arrivee'     => 'required|string|max:100',
-            'date_reservation'  => 'required|date',
-            'heure_reservation' => 'required',
-        ]);
+   public function store(Request $request)
+{
+    $request->validate([
+        'nom'               => 'required|string|max:100',
+        'prenom'            => 'required|string|max:100',
+        'categorie'         => 'required|string|in:PER,PATS,ATR,Vacataire',
+        'type_profil'       => 'required|string|in:permanent,non_permanent,contractuel,vacataire',
+        'ufr'               => 'required|string|max:100',
+        'type_trajet'       => 'required|in:aller,retour,aller_retour',
+        'ville_depart'      => 'required|string|max:100',
+        'ville_arrivee'     => 'required|string|max:100',
+        'date_reservation'  => 'required|date',
+        'heure_reservation' => 'required',
+    ]);
 
-        $user = auth()->user();
-        if (!$user || !$user->qr_code) {
-            $user->update(['qr_code' => 'USR-' . strtoupper(Str::random(8))]);
-            $user->refresh();
-        }
+    $user = auth()->user();
 
-        $montantUnite = $this->tarifs[$request->ville_depart . ' - ' . $request->ville_arrivee]
-                     ?? $this->tarifs[$request->ville_arrivee . ' - ' . $request->ville_depart]
-                     ?? 0;
+   
+    $dejaReserve = Reservation::where('user_id', $user->id)
+        ->where('date_reservation', $request->date_reservation)
+        ->whereNotIn('statut', ['annulee', 'refusee'])
+        ->exists();
 
-        if ($request->type_profil === 'vacataire') {
-            $montantUnite = 0;
-        }
-
-        $baseData = [
-            'user_id'          => $user->id,
-            'nom'              => $request->nom,
-            'prenom'           => $request->prenom,
-            'categorie'        => $request->categorie,
-            'type_profil'      => $request->type_profil,
-            'ufr'              => $request->ufr,
-            'type_trajet'      => $request->type_trajet,
-            'ville_depart'     => $request->ville_depart,
-            'ville_arrivee'    => $request->ville_arrivee,
-            'date_reservation' => $request->date_reservation,
-            'heure_reservation'=> $request->heure_reservation,
-            'statut'           => 'en_attente_confirmation',
-            'montant_retenue'  => $montantUnite,
-        ];
-
-        $reservations = [];
-
-        if ($request->type_trajet === 'aller_retour') {
-            $groupeId = strtoupper(Str::random(10));
-
-            $aller = Reservation::create(array_merge($baseData, [
-                'groupe_id'   => $groupeId,
-                'trajet_sens' => 'aller',
-            ]));
-
-            $retour = Reservation::create(array_merge($baseData, [
-                'groupe_id'    => $groupeId,
-                'trajet_sens'  => 'retour',
-                'ville_depart' => $request->ville_arrivee,
-                'ville_arrivee'=> $request->ville_depart,
-            ]));
-
-            $reservations = [$aller, $retour];
-
-        } else {
-            $res = Reservation::create(array_merge($baseData, [
-                'trajet_sens' => $request->type_trajet,
-            ]));
-            $reservations = [$res];
-        }
-
+    if ($dejaReserve) {
         return response()->json([
-            'message'      => 'Réservation envoyée ! En attente de confirmation du chauffeur.',
-            'reservations' => $reservations,
-            'type_trajet'  => $request->type_trajet,
-        ]);
+            'message' => 'Vous avez déjà une réservation active pour cette date. Veuillez annuler votre réservation existante avant d\'en créer une nouvelle.',
+        ], 403);
     }
 
+    if (!$user->qr_code) {
+        $user->update(['qr_code' => 'USR-' . strtoupper(Str::random(8))]);
+        $user->refresh();
+    }
+
+    $montantUnite = $this->tarifs[$request->ville_depart . ' - ' . $request->ville_arrivee]
+                 ?? $this->tarifs[$request->ville_arrivee . ' - ' . $request->ville_depart]
+                 ?? 0;
+
+    if ($request->type_profil === 'vacataire') {
+        $montantUnite = 0;
+    }
+
+    $baseData = [
+        'user_id'          => $user->id,
+        'nom'              => $request->nom,
+        'prenom'           => $request->prenom,
+        'categorie'        => $request->categorie,
+        'type_profil'      => $request->type_profil,
+        'ufr'              => $request->ufr,
+        'type_trajet'      => $request->type_trajet,
+        'ville_depart'     => $request->ville_depart,
+        'ville_arrivee'    => $request->ville_arrivee,
+        'date_reservation' => $request->date_reservation,
+        'heure_reservation'=> $request->heure_reservation,
+        'statut'           => 'en_attente_confirmation',
+        'montant_retenue'  => $montantUnite,
+    ];
+
+    $reservations = [];
+
+    if ($request->type_trajet === 'aller_retour') {
+        $groupeId = strtoupper(Str::random(10));
+
+        $aller = Reservation::create(array_merge($baseData, [
+            'groupe_id'   => $groupeId,
+            'trajet_sens' => 'aller',
+        ]));
+
+        $retour = Reservation::create(array_merge($baseData, [
+            'groupe_id'    => $groupeId,
+            'trajet_sens'  => 'retour',
+            'ville_depart' => $request->ville_arrivee,
+            'ville_arrivee'=> $request->ville_depart,
+        ]));
+
+        $reservations = [$aller, $retour];
+
+    } else {
+        $res = Reservation::create(array_merge($baseData, [
+            'trajet_sens' => $request->type_trajet,
+        ]));
+        $reservations = [$res];
+    }
+
+    return response()->json([
+        'message'      => 'Réservation envoyée ! En attente de confirmation du chauffeur.',
+        'reservations' => $reservations,
+        'type_trajet'  => $request->type_trajet,
+    ]);
+}
     // ============================================================
     // STATUT : Polling passager
     // ============================================================

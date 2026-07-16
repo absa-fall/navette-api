@@ -91,21 +91,20 @@ class AutorisationAbsenceController extends Controller
 
     public function transmettreVersChefDepartement(Request $request, $id)
     {
-        $autorisation = AutorisationAbsence::with('enseignant')->findOrFail($id);
+        $request->validate([
+            'signature' => 'required|string',
+        ]);
 
+        $autorisation = AutorisationAbsence::with('enseignant')->findOrFail($id);
         if ($autorisation->enseignant_id !== auth()->id()) {
             return response()->json(['message' => 'Action non autorisee'], 403);
         }
-
-        if (!$autorisation->signature_enseignant) {
-            return response()->json(['message' => 'Vous devez d\'abord signer la demande avant de la transmettre'], 409);
-        }
-
-        if ($autorisation->statut !== 'signee') {
+        if ($autorisation->statut !== 'brouillon') {
             return response()->json(['message' => 'Cette demande a deja ete transmise'], 409);
         }
-
         $autorisation->update([
+            'signature_enseignant' => true,
+            'signature_enseignant_image' => $request->signature,
             'statut' => 'soumise',
         ]);
 
@@ -132,9 +131,10 @@ class AutorisationAbsenceController extends Controller
 
    public function avisChefDepartement(Request $request, $id)
     {
-        $request->validate([
+      $request->validate([
             'avis'        => 'required|in:favorable,defavorable',
             'commentaire' => 'nullable|string',
+            'signature'   => 'required_if:avis,favorable|string',
         ]);
 
         $autorisation = AutorisationAbsence::with(['enseignant', 'beneficiaire.voyage'])->findOrFail($id);
@@ -152,6 +152,7 @@ class AutorisationAbsenceController extends Controller
             'avis_chef_departement'         => $request->avis,
             'commentaire_chef_departement'  => $request->commentaire,
             'date_avis_chef_departement'    => now(),
+            'signature_chef_departement_image' => $request->avis === 'favorable' ? $request->signature : null,
             'statut'                        => $request->avis === 'favorable' ? 'avis_chef_departement' : 'rejetee',
         ]);
 
@@ -185,9 +186,10 @@ class AutorisationAbsenceController extends Controller
 
     public function avisDirecteurUfr(Request $request, $id)
     {
-        $request->validate([
+       $request->validate([
             'avis'        => 'required|in:favorable,defavorable',
             'commentaire' => 'nullable|string',
+            'signature'   => 'required_if:avis,favorable|string',
         ]);
 
         $autorisation = AutorisationAbsence::with('enseignant')->findOrFail($id);
@@ -205,6 +207,7 @@ class AutorisationAbsenceController extends Controller
             'avis_directeur_ufr'        => $request->avis,
             'commentaire_directeur_ufr' => $request->commentaire,
             'date_avis_directeur_ufr'   => now(),
+            'signature_directeur_ufr_image' => $request->avis === 'favorable' ? $request->signature : null,
             'statut'                    => $request->avis === 'favorable' ? 'avis_directeur_ufr' : 'rejetee',
         ]);
 

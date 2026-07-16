@@ -45,8 +45,12 @@ class VoyageEtudeController extends Controller
         ], 201);
     }
 
-    public function transmettreListe($voyageId)
+    public function transmettreListe(Request $request, $voyageId)
     {
+        $request->validate([
+            'signature' => 'required|string',
+        ]);
+
         $voyage = VoyageEtude::findOrFail($voyageId);
 
         if ($voyage->vice_recteur_id !== auth()->id()) {
@@ -57,7 +61,10 @@ class VoyageEtudeController extends Controller
             return response()->json(['message' => 'Cette liste a deja ete transmise'], 409);
         }
 
-        $voyage->update(['statut_liste' => 'publiee']);
+        $voyage->update([
+            'statut_liste' => 'publiee',
+            'signature_liste_preliminaire' => $request->signature,
+        ]);
 
        
 $chefsDept = User::where('role', 'chef_departement')->get();
@@ -420,11 +427,11 @@ foreach ($commission as $membre) {
 
     public function publierListeDefinitive(Request $request, $voyageId)
     {
-        $request->validate([
-            'beneficiaires'   => 'required|array',
-            'beneficiaires.*' => 'exists:voyage_etude_beneficiaires,id',
-        ]);
-
+       $request->validate([
+    'beneficiaires'   => 'required|array',
+    'beneficiaires.*' => 'exists:voyage_etude_beneficiaires,id',
+    'signature'        => 'required|string',
+]);
         $voyage = VoyageEtude::findOrFail($voyageId);
 
         $beneficiairesSelectionnes = VoyageEtudeBeneficiaire::with(['avis.user'])
@@ -466,7 +473,10 @@ foreach ($commission as $membre) {
         VoyageEtudeBeneficiaire::whereIn('id', $request->beneficiaires)
             ->update(['dans_liste_definitive' => true]);
 
-        $voyage->update(['statut_liste' => 'definitive']);
+       $voyage->update([
+    'statut_liste' => 'definitive',
+    'signature_liste_definitive' => $request->signature,
+]);
 
         $recteur = User::where('role', 'recteur')->first();
         if ($recteur) {

@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 
 class ArreteVoyageController extends Controller
 {
-    public function store(Request $request, $voyageId)
+   public function store(Request $request, $voyageId)
 {
     $request->validate([
         'numero'             => 'required|string|max:50',
@@ -19,9 +19,7 @@ class ArreteVoyageController extends Controller
         'montant_billet'     => 'required|numeric|min:0',
         'montant_indemnite'  => 'required|numeric|min:0',
     ]);
-
     $voyage = VoyageEtude::findOrFail($voyageId);
-
     $arrete = ArreteVoyage::create([
         'voyage_id'          => $voyage->id,
         'recteur_id'         => auth()->id(),
@@ -30,11 +28,34 @@ class ArreteVoyageController extends Controller
         'visas'              => $request->visas,
         'montant_billet'     => $request->montant_billet,
         'montant_indemnite'  => $request->montant_indemnite,
-        'signe'              => true,
-        'date_signature'     => now(),
+        'signe'              => false,
     ]);
 
-    $voyage->update(['arrete_recteur' => true]);
+    return response()->json([
+        'message' => 'Arrete enregistre en brouillon, en attente de signature',
+        'arrete'  => $arrete,
+    ], 201);
+}
+
+public function transmettre(Request $request, $id)
+{
+    $request->validate([
+        'signature' => 'required|string',
+    ]);
+
+    $arrete = ArreteVoyage::with('voyage')->findOrFail($id);
+
+    if ($arrete->signe) {
+        return response()->json(['message' => 'Cet arrete a deja ete signe et transmis'], 409);
+    }
+
+    $arrete->update([
+        'signe'          => true,
+        'signature'      => $request->signature,
+        'date_signature' => now(),
+    ]);
+
+    $arrete->voyage->update(['arrete_recteur' => true]);
 
     $vr = User::where('role', 'vice_recteur')->first();
     if ($vr) {
@@ -43,10 +64,10 @@ class ArreteVoyageController extends Controller
             'user_id' => $vr->id,
             'type'    => 'arrete_signe',
             'titre'   => 'Arrete signe par le Recteur',
-            'message' => 'L\'arrete n°' . $arrete->numero . ' pour le voyage a ' . $voyage->destination . ' a ete signe. Vous pouvez le transmettre aux enseignants beneficiaires.',
+            'message' => 'L\'arrete n°' . $arrete->numero . ' pour le voyage a ' . $arrete->voyage->destination . ' a ete signe. Vous pouvez le transmettre aux enseignants beneficiaires.',
             'lu'      => false,
         ]);
-
+        
         // ← AJOUT : Envoi du PDF par mail au VR
         try {
             \Mail::to($vr->email)->send(new \App\Mail\ArreteVoyageMail($arrete, null));
@@ -56,7 +77,9 @@ class ArreteVoyageController extends Controller
     }
     
 // Envoyer l'arrêté par mail à chaque bénéficiaire définitif
-    $beneficiairesDefinitifs = $voyage->beneficiaires()->where('dans_liste_definitive', true)->with('enseignant')->get();
+    // Correctif : $voyage n'existait pas dans cette methode, seul $arrete->voyage
+    // avait ete charge plus haut. C'etait la cause du 500 (Undefined variable $voyage).
+    $beneficiairesDefinitifs = $arrete->voyage->beneficiaires()->where('dans_liste_definitive', true)->with('enseignant')->get();
     foreach ($beneficiairesDefinitifs as $b) {
         if ($b->enseignant && $b->enseignant->email) {
             try {
@@ -69,7 +92,7 @@ class ArreteVoyageController extends Controller
             'user_id' => $b->enseignant_id,
             'type'    => 'arrete_signe',
             'titre'   => 'Arrete de voyage signe',
-            'message' => 'L\'arrete n°' . $arrete->numero . ' pour le voyage a ' . $voyage->destination . ' a ete signe. Vous pouvez le consulter.',
+            'message' => 'L\'arrete n°' . $arrete->numero . ' pour le voyage a ' . $arrete->voyage->destination . ' a ete signe. Vous pouvez le consulter.',
             'lu'      => false,
         ]);
     }

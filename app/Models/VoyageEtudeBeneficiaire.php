@@ -25,10 +25,13 @@ class VoyageEtudeBeneficiaire extends Model
     'masque_commission',
 ];
 
-    protected $casts = [
-        'dans_liste_definitive' => 'boolean',
+   protected $casts = [
+        'dans_liste_definitive'   => 'boolean',
+        'date_limite_soumission'  => 'date',
+        'alerte_delai_envoyee'    => 'boolean',
+        'date_limite_rapport'     => 'date',
+        'alerte_rapport_envoyee'  => 'boolean',
     ];
-
     public function voyage()
     {
         return $this->belongsTo(VoyageEtude::class, 'voyage_id');

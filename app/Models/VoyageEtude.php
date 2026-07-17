@@ -24,11 +24,11 @@ class VoyageEtude extends Model
     'date_publication',        
     'motif',                   
     'arrete_recteur',
-    'enseignants_notifies',
-    'masque_admin',   
-'signature_liste_definitive',
+'enseignants_notifies',
+'masque_admin',   
 'signature_liste_definitive',
 'signature_liste_preliminaire',
+'date_liste_definitive',
 ];
 protected $casts = [
     'date_debut'    => 'date',

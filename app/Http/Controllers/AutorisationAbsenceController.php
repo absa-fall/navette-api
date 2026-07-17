@@ -99,8 +99,8 @@ class AutorisationAbsenceController extends Controller
         if ($autorisation->enseignant_id !== auth()->id()) {
             return response()->json(['message' => 'Action non autorisee'], 403);
         }
-        if ($autorisation->statut !== 'brouillon') {
-            return response()->json(['message' => 'Cette demande a deja ete transmise'], 409);
+       if ($autorisation->statut !== 'signee') {
+            return response()->json(['message' => 'Cette demande doit d\'abord etre signee'], 409);
         }
         $autorisation->update([
             'signature_enseignant' => true,
@@ -237,16 +237,24 @@ class AutorisationAbsenceController extends Controller
         return response()->json(['message' => 'Approbation transmise au Recteur', 'autorisation' => $autorisation]);
     }
 
-    public function signerRecteur($id)
+   public function signerRecteur(Request $request, $id)
     {
+        $request->validate([
+            'signature' => 'required|string',
+        ]);
+
         $autorisation = AutorisationAbsence::with('enseignant')->findOrFail($id);
+
+        if ($autorisation->statut !== 'avis_directeur_ufr') {
+            return response()->json(['message' => 'Cette demande n\'est pas en attente de votre signature'], 409);
+        }
 
         $autorisation->update([
             'recteur_id'              => auth()->id(),
+            'signature_recteur_image' => $request->signature,
             'date_signature_recteur'  => now(),
             'statut'                  => 'transmise',
         ]);
-
         $autorisation->beneficiaire()->update(['statut_autorisation' => 'approuve_recteur']);
 
         Notification::create([

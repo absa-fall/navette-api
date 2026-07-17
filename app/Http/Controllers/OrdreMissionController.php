@@ -105,7 +105,6 @@ class OrdreMissionController extends Controller
             'ordre' => $ordre
         ]);
     }
-// Chauffeur signale un incident (a tout moment pendant sa mission)
 public function signalerIncident(Request $request, $id)
 {
     $request->validate([
@@ -151,6 +150,7 @@ public function signalerIncident(Request $request, $id)
     }
 
     $sgVr = User::where('role', 'sg_vr')->first();
+
     if ($sgVr) {
         Notification::create([
             'user_id' => $sgVr->id,
@@ -171,10 +171,12 @@ public function signalerIncident(Request $request, $id)
         'lu' => false,
     ]);
 
-    // ✅ NOUVEAU : Notifier tous les passagers ayant une réservation active
-    // (aller et/ou retour) pour cette mission, afin qu'ils sachent que le
-    // bus est immobilisé et que leur trajet est impacté.
     $passagersIds = Reservation::whereDate('date_reservation', $ordre->date_depart)
+        ->where('chauffeur_id', $ordre->chauffeur_id)
+        ->where(function ($q) use ($ordre) {
+            $q->where('vehicule_id', $ordre->vehicule_id)
+              ->orWhereNull('vehicule_id');
+        })
         ->whereIn('statut', ['en_attente_confirmation', 'confirmee', 'en_cours'])
         ->pluck('user_id')
         ->unique();

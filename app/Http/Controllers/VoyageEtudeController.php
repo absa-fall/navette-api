@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use App\Models\VoyageEtudeAvis;
 use App\Models\VoyageEtudeJustificatif;
 
@@ -136,9 +137,15 @@ foreach ($commission as $membre) {
             'justificatifs_autres.*'  => 'file|mimes:pdf|max:10240',
         ]);
 
-        $beneficiaire = VoyageEtudeBeneficiaire::where('id', $beneficiaireId)
+       $beneficiaire = VoyageEtudeBeneficiaire::where('id', $beneficiaireId)
             ->where('enseignant_id', auth()->id())
             ->firstOrFail();
+
+        if ($beneficiaire->date_limite_soumission && now()->greaterThan($beneficiaire->date_limite_soumission)) {
+            return response()->json([
+                'message' => 'La date limite du ' . $beneficiaire->date_limite_soumission->format('d/m/Y') . ' pour renvoyer vos justificatifs est depassee. Contactez le Vice-Recteur.',
+            ], 422);
+        }
 
         foreach ($request->file('justificatifs') as $fichier) {
             $path = $fichier->store('justificatifs', 'public');
@@ -162,8 +169,10 @@ foreach ($commission as $membre) {
             }
         }
 
-        $beneficiaire->update([
-            'statut_justificatif' => 'soumis',
+       $beneficiaire->update([
+            'statut_justificatif'    => 'soumis',
+            'date_limite_soumission' => null,
+            'alerte_delai_envoyee'   => false,
         ]);
 
         $nomEnseignant = auth()->user()->prenom . ' ' . auth()->user()->nom;
@@ -322,9 +331,10 @@ foreach ($commission as $membre) {
 
     public function donnerAvis(Request $request, $beneficiaireId)
     {
-        $request->validate([
+       $request->validate([
             'avis'        => 'required|in:valide,rejete',
             'commentaire' => 'nullable|string',
+            'date_limite' => 'nullable|date|after:today',
         ]);
 
         $beneficiaire = VoyageEtudeBeneficiaire::with(['enseignant', 'voyage'])
@@ -372,14 +382,22 @@ foreach ($commission as $membre) {
             }
         }
 
-        if ($request->avis === 'rejete' && $auteur->role === 'vice_recteur') {
-            $beneficiaire->update(['statut_justificatif' => 'incomplet']);
+       if ($request->avis === 'rejete' && $auteur->role === 'vice_recteur') {
+            $dateLimite = $request->date_limite
+                ? \Carbon\Carbon::parse($request->date_limite)
+                : now()->addDays(15);
+
+            $beneficiaire->update([
+                'statut_justificatif'     => 'incomplet',
+                'date_limite_soumission'  => $dateLimite,
+                'alerte_delai_envoyee'    => false,
+            ]);
             try {
                 Notification::create([
                     'user_id' => $beneficiaire->enseignant_id,
                     'type'    => 'dossier_rejete',
                     'titre'   => 'Dossier incomplet',
-                    'message' => 'Votre dossier pour le voyage a ' . $destination . ' a ete juge incomplet par le Vice-Recteur. Veuillez completer vos justificatifs et les soumettre a nouveau.',
+                    'message' => 'Votre dossier pour le voyage a ' . $destination . ' a ete juge incomplet par le Vice-Recteur. Veuillez completer vos justificatifs et les soumettre avant le ' . $dateLimite->format('d/m/Y') . '.' . ($request->commentaire ? ' Motif : ' . $request->commentaire : ''),
                     'lu'      => false,
                 ]);
             } catch (\Exception $e) {
@@ -470,12 +488,22 @@ foreach ($commission as $membre) {
         VoyageEtudeBeneficiaire::where('voyage_id', $voyageId)
             ->update(['dans_liste_definitive' => false]);
 
-        VoyageEtudeBeneficiaire::whereIn('id', $request->beneficiaires)
-            ->update(['dans_liste_definitive' => true]);
+        $dateRetour = \Carbon\Carbon::parse($voyage->date_fin);
+        $limiteRapport = \Carbon\Carbon::createFromDate($dateRetour->year, 3, 31);
+        if ($dateRetour->greaterThan($limiteRapport)) {
+            $limiteRapport = \Carbon\Carbon::createFromDate($dateRetour->year + 1, 3, 31);
+        }
 
-       $voyage->update([
+        VoyageEtudeBeneficiaire::whereIn('id', $request->beneficiaires)
+            ->update([
+                'dans_liste_definitive' => true,
+                'date_limite_rapport'   => $limiteRapport,
+                'alerte_rapport_envoyee' => false,
+            ]);
+$voyage->update([
     'statut_liste' => 'definitive',
     'signature_liste_definitive' => $request->signature,
+    'date_liste_definitive' => now(),
 ]);
 
         $recteur = User::where('role', 'recteur')->first();
@@ -789,6 +817,49 @@ if ($user->role === 'admin') {
             'eligible' => true,
             'message'  => 'Vous etes eligible au voyage d\'etudes'
         ]);
+    }
+
+   public function creerEnseignantManuel(Request $request)
+    {
+        $request->validate([
+            'prenom'        => 'required|string',
+            'nom'           => 'required|string',
+            'ufr'           => 'nullable|in:SATIC,SDD,ECOMIJ,ISFAR',
+            'departement'   => 'nullable|string',
+            'matricule'     => 'nullable|string|unique:users',
+            'date_embauche' => 'nullable|date',
+        ]);
+
+        $emailGenere = strtolower(str_replace(' ', '', $request->prenom . '.' . $request->nom)) . '.' . time() . '@uadb.local';
+
+        $enseignant = User::create([
+            'nom'           => $request->nom,
+            'prenom'        => $request->prenom,
+            'email'         => $emailGenere,
+            'password'      => Str::random(16),
+            'role'          => 'enseignant',
+            'ufr'           => $request->ufr,
+            'departement'   => $request->departement,
+            'matricule'     => $request->matricule,
+            'date_embauche' => $request->date_embauche,
+            'is_active'     => true,
+        ]);
+
+        $chefDept = User::where('role', 'chef_departement')->where('ufr', $enseignant->ufr)->first();
+        if ($chefDept) {
+            Notification::create([
+                'user_id' => $chefDept->id,
+                'type'    => 'enseignant_ajoute_manuellement',
+                'titre'   => 'Nouvel enseignant ajoute — ' . $enseignant->ufr,
+                'message' => 'Le Vice-Recteur a ajoute ' . $enseignant->prenom . ' ' . $enseignant->nom . ' a une liste de voyage d\'etudes.',
+                'lu'      => false,
+            ]);
+        }
+
+        return response()->json([
+            'message'    => 'Enseignant cree avec succes',
+            'enseignant' => $enseignant,
+        ], 201);
     }
 
     public function ajouterBeneficiaire(Request $request, $voyageId)

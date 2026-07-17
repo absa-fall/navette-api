@@ -15,7 +15,8 @@ class ArreteVoyage extends Model
         'montant_billet',
         'montant_indemnite',
         'signe',
-        'date_signature',
+'signature',
+'date_signature',
         'date_envoi_emails',
     ];
 

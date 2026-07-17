@@ -39,6 +39,12 @@ class AuthController extends Controller
             ], 403);
         }
 
+        if (!$user->compte_actif) {
+            return response()->json([
+                'message' => 'Votre compte n\'est pas encore activé. Consultez l\'email reçu pour activer votre compte avec votre code.'
+            ], 403);
+        }
+
        // Générer le QR automatiquement si l'usager n'en a pas
 if ($user->role === 'usager' && !$user->qr_code) {
     $user->update(['qr_code' => 'UADB-' . strtoupper(Str::random(8))]);
@@ -103,6 +109,8 @@ public function register(Request $request)
         'user'    => $user,
     ], 201);
 }
+
+
     public function logout(Request $request)
     {
         $request->user()->currentAccessToken()->delete();
@@ -156,7 +164,7 @@ public function resetPassword(Request $request)
     $request->validate([
         'token'    => 'required',
         'email'    => 'required|email',
-        'password' => 'required|min:6|confirmed',
+       'password' => ['required', 'confirmed', Password::min(8)->mixedCase()->numbers()->symbols()],
     ]);
 
     $status = Password::reset(

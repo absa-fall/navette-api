@@ -257,11 +257,12 @@ class AutorisationAbsenceController extends Controller
         ]);
         $autorisation->beneficiaire()->update(['statut_autorisation' => 'approuve_recteur']);
 
+        // À partir d'ici, le document est une "Autorisation de sortie du territoire" (signée par le Recteur)
         Notification::create([
             'user_id' => $autorisation->enseignant_id,
             'type'    => 'autorisation_disponible',
-            'titre'   => 'Autorisation d\'absence disponible',
-            'message' => 'Votre autorisation d\'absence (' . $autorisation->numero . ') a ete signee par le Recteur. Vous pouvez la telecharger.',
+            'titre'   => 'Autorisation de sortie du territoire disponible',
+            'message' => 'Votre autorisation de sortie du territoire (' . $autorisation->numero . ') a ete signee par le Recteur. Vous pouvez la telecharger.',
             'lu'      => false,
         ]);
 
@@ -270,8 +271,8 @@ class AutorisationAbsenceController extends Controller
             Notification::create([
                 'user_id' => $vr->id,
                 'type'    => 'autorisation_signee',
-                'titre'   => 'Autorisation signee — ' . $autorisation->numero,
-                'message' => 'Le Recteur a signe et transmis l\'autorisation d\'absence de ' . $autorisation->nom_demandeur . '.',
+                'titre'   => 'Autorisation de sortie du territoire signee — ' . $autorisation->numero,
+                'message' => 'Le Recteur a signe et transmis l\'autorisation de sortie du territoire de ' . $autorisation->nom_demandeur . '.',
                 'lu'      => false,
             ]);
         }
@@ -282,10 +283,10 @@ class AutorisationAbsenceController extends Controller
                 Mail::to($vr->email)->send(new AutorisationAbsenceMail($autorisation));
             }
         } catch (\Exception $e) {
-            \Log::error('Erreur envoi mail autorisation absence : ' . $e->getMessage());
+            \Log::error('Erreur envoi mail autorisation de sortie du territoire : ' . $e->getMessage());
         }
 
-        return response()->json(['message' => 'Autorisation signee et transmise a l\'enseignant', 'autorisation' => $autorisation]);
+        return response()->json(['message' => 'Autorisation de sortie du territoire signee et transmise a l\'enseignant', 'autorisation' => $autorisation]);
     }
 
     public function transmettreEnseignant($id)
@@ -303,8 +304,8 @@ class AutorisationAbsenceController extends Controller
         Notification::create([
             'user_id' => $autorisation->enseignant_id,
             'type'    => 'autorisation_disponible',
-            'titre'   => 'Autorisation d\'absence disponible',
-            'message' => 'Votre autorisation d\'absence (' . $autorisation->numero . ') a ete signee par le Recteur et transmise par le Vice-Recteur. Vous pouvez la telecharger.',
+            'titre'   => 'Autorisation de sortie du territoire disponible',
+            'message' => 'Votre autorisation de sortie du territoire (' . $autorisation->numero . ') a ete signee par le Recteur et transmise par le Vice-Recteur. Vous pouvez la telecharger.',
             'lu'      => false,
         ]);
 

@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use App\Mail\CodeActivationMail;
+use Illuminate\Support\Facades\Mail;
 
 class UserController extends Controller
 {
@@ -61,6 +63,9 @@ class UserController extends Controller
 
     $request->validate($rules);
 
+
+    $code = (string) random_int(100000, 999999);
+
     $user = User::create([
         'nom' => $request->nom,
         'prenom' => $request->prenom,
@@ -74,7 +79,12 @@ class UserController extends Controller
         'tel' => $request->tel,
         'nationalite' => $request->nationalite,
         'date_embauche' => $request->date_embauche,
+        'compte_actif' => false,
+        'code_activation' => Hash::make($code),
+        'code_activation_expire_at' => now()->addHours(48),
     ]);
+
+    Mail::to($user->email)->send(new CodeActivationMail($user, $code));
 
     $response = [
         'message' => 'Utilisateur créé avec succès',
@@ -195,7 +205,7 @@ class UserController extends Controller
 {
     $request->validate([
         'current_password' => 'required',
-        'new_password' => 'required|min:6',
+       'new_password' => ['required', Password::min(8)->mixedCase()->numbers()->symbols()],
     ]);
 
     $user = auth()->user();

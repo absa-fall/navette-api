@@ -28,6 +28,11 @@ class User extends Authenticatable
     'qr_code', 
     'nationalite',
     'grade_fonction',
+    'bloque_prochain_voyage',
+    'date_blocage',
+    'compte_actif',              
+    'code_activation',           
+    'code_activation_expire_at', 
 ];
 
     protected $hidden = [
@@ -35,12 +40,14 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-    protected function casts(): array
+   protected function casts(): array
     {
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'compte_actif' => 'boolean',
+            'code_activation_expire_at' => 'datetime',
         ];
     }
 

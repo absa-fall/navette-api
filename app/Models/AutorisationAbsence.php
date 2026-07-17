@@ -23,10 +23,10 @@ class AutorisationAbsence extends Model
         'periode_fin',
         'organisme_charge',
         'signature_enseignant',
-'signature_enseignant_image',
-'signature_chef_departement_image',
-'signature_directeur_ufr_image',
-'signature_recteur_image',
+        'signature_enseignant_image',
+        'signature_chef_departement_image',
+        'signature_directeur_ufr_image',
+        'signature_recteur_image',
         'chef_departement_id',
         'avis_chef_departement',
         'commentaire_chef_departement',
@@ -41,9 +41,9 @@ class AutorisationAbsence extends Model
         'date_transmission_vr',
         'statut',
         'masque_chef_departement',
-'masque_directeur_ufr',
-'masque_recteur',
-'masque_enseignant',
+        'masque_directeur_ufr',
+        'masque_recteur',
+        'masque_enseignant',
     ];
 
     protected $casts = [
@@ -61,12 +61,14 @@ class AutorisationAbsence extends Model
         'fonction' => 'Enseignant-Chercheur',
         'statut'   => 'soumise',
     ];
-protected $appends = ['justificatif_url'];
 
-public function getJustificatifUrlAttribute()
-{
-    return $this->justificatif ? asset('storage/' . $this->justificatif) : null;
-}
+    protected $appends = ['justificatif_url'];
+
+    public function getJustificatifUrlAttribute()
+    {
+        return $this->justificatif ? asset('storage/' . $this->justificatif) : null;
+    }
+
     public function beneficiaire()
     {
         return $this->belongsTo(VoyageEtudeBeneficiaire::class, 'beneficiaire_id');

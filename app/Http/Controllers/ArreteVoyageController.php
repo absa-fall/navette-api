@@ -103,12 +103,19 @@ public function transmettre(Request $request, $id)
     ], 201);
 }
 public function destroy($id)
-    {
-        $arrete = ArreteVoyage::findOrFail($id);
-        $arrete->delete();
+{
+    $arrete = ArreteVoyage::findOrFail($id);
+    $voyage = $arrete->voyage;
 
-        return response()->json(['message' => 'Arrete supprime avec succes']);
+    $arrete->delete();
+
+    if ($voyage) {
+        $voyage->arrete_recteur = false;
+        $voyage->save();
     }
+
+    return response()->json(['message' => 'Arrete supprime avec succes']);
+}
     // Voir un arrêté (toutes les parties prenantes)
     public function show($id)
     {

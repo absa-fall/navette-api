@@ -15,7 +15,7 @@
         <p>Bonjour {{ $autorisation->nom_demandeur }},</p>
 
         <p>
-            Nous avons le plaisir de vous informer que votre demande d'autorisation d'absence
+            Nous avons le plaisir de vous informer que votre autorisation de sortie du territoire
             N° <strong>{{ $autorisation->numero }}</strong> a été approuvée et signée par le Recteur.
         </p>
 
@@ -27,7 +27,7 @@
         </p>
 
         <p>
-            Veuillez trouver en pièce jointe le document officiel de votre autorisation d'absence.
+            Veuillez trouver en pièce jointe le document officiel de votre autorisation de sortie du territoire.
             Vous pouvez également le consulter et le télécharger depuis votre espace personnel sur la plateforme.
         </p>
 

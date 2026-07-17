@@ -11,15 +11,24 @@ class ProcesVerbalController extends Controller
     // Rôles autorisés à rédiger / modifier le PV tant qu'il n'est pas finalisé
     private const ROLES_REDACTEURS = ['vice_recteur', 'commission'];
 
-    // Rôles autorisés à consulter uniquement (lecture seule)
-    private const ROLES_LECTURE_SEULE = ['recteur', 'admin'];
+    // Rôles autorisés à lire le CONTENU complet du PV (lecture seule pour le Recteur)
+    private const ROLES_LECTURE_CONTENU = ['recteur'];
 
     /**
-     * Vérifie que l'utilisateur a au moins un accès en lecture au PV.
+     * Peut voir le contenu complet d'un PV (rédacteurs + Recteur).
      */
-    private function peutLire($user): bool
+    private function peutVoirContenu($user): bool
     {
-        return in_array($user->role, [...self::ROLES_REDACTEURS, ...self::ROLES_LECTURE_SEULE]);
+        return in_array($user->role, [...self::ROLES_REDACTEURS, ...self::ROLES_LECTURE_CONTENU]);
+    }
+
+    /**
+     * Peut voir la LISTE des PV (métadonnées seulement), sans le contenu.
+     * Inclut l'admin, en plus de tous ceux qui peuvent voir le contenu.
+     */
+    private function peutLister($user): bool
+    {
+        return $this->peutVoirContenu($user) || $user->role === 'admin';
     }
 
     /**
@@ -32,11 +41,12 @@ class ProcesVerbalController extends Controller
 
     /**
      * Liste tous les PV existants (historique par année).
+     * L'admin voit la liste mais pas le contenu (comme pour les autres modules d'admin).
      */
     public function index(Request $request)
     {
         $user = Auth::user();
-        if (!$this->peutLire($user)) {
+        if (!$this->peutLister($user)) {
             return response()->json(['message' => 'Accès non autorisé.'], 403);
         }
 
@@ -44,17 +54,33 @@ class ProcesVerbalController extends Controller
             ->orderByDesc('annee')
             ->get();
 
+        // L'admin ne voit que les métadonnées, pas le contenu rédigé
+        if ($user->role === 'admin') {
+            $pvs = $pvs->map(function ($pv) {
+                return [
+                    'id' => $pv->id,
+                    'annee' => $pv->annee,
+                    'statut' => $pv->statut,
+                    'derniere_modif_par' => $pv->dernierModificateur,
+                    'finalise_par' => $pv->finalisateur,
+                    'finalise_le' => $pv->finalise_le,
+                    'created_at' => $pv->created_at,
+                    'updated_at' => $pv->updated_at,
+                ];
+            });
+        }
+
         return response()->json($pvs);
     }
 
     /**
-     * Récupère le PV d'une année donnée. Le crée en brouillon vide s'il n'existe pas encore
-     * (seulement si l'utilisateur a le droit de rédiger — sinon 404 pour la lecture seule).
+     * Récupère le PV d'une année donnée (contenu complet). L'admin n'y a pas accès
+     * (il passe uniquement par index() pour le listing).
      */
     public function show(Request $request, $annee)
     {
         $user = Auth::user();
-        if (!$this->peutLire($user)) {
+        if (!$this->peutVoirContenu($user)) {
             return response()->json(['message' => 'Accès non autorisé.'], 403);
         }
 

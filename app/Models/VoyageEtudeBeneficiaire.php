@@ -9,7 +9,7 @@ class VoyageEtudeBeneficiaire extends Model
 {
     protected $table = 'voyage_etude_beneficiaires';
 
-   protected $fillable = [
+  protected $fillable = [
     'voyage_id',
     'enseignant_id',
     'justificatif_pdf',
@@ -23,14 +23,21 @@ class VoyageEtudeBeneficiaire extends Model
     'masque_recteur',           
     'masque_vice_recteur',     
     'masque_commission',
+    'date_limite_soumission',
+    'alerte_delai_envoyee',
+    'date_limite_rapport',
+    'alerte_rapport_envoyee',
+    'deja_rejete',
+    'dernier_motif_rejet',
 ];
 
-   protected $casts = [
+protected $casts = [
         'dans_liste_definitive'   => 'boolean',
         'date_limite_soumission'  => 'date',
         'alerte_delai_envoyee'    => 'boolean',
         'date_limite_rapport'     => 'date',
         'alerte_rapport_envoyee'  => 'boolean',
+        'deja_rejete'             => 'boolean',
     ];
     public function voyage()
     {

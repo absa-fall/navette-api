@@ -22,6 +22,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+Route::post('/activer-compte', [VoyageEtudeController::class, 'activerCompte']);
 
 Route::post('/reservations', [ReservationController::class, 'store']);
 Route::post('/validation/montee', [ReservationController::class, 'validerMontee']);
@@ -259,7 +260,9 @@ Route::middleware('role:vice_recteur,commission')->group(function () {
     Route::middleware('role:vice_recteur')->group(function () {
         Route::post('/voyages-etudes', [VoyageEtudeController::class, 'publierListe']);
         Route::patch('/voyages-etudes/{id}/transmettre', [VoyageEtudeController::class, 'transmettreListe']);
-       Route::post('/voyages-etudes/{id}/ajouter-beneficiaire', [VoyageEtudeController::class, 'ajouterBeneficiaire']);
+      Route::post('/voyages-etudes/{id}/ajouter-beneficiaire', [VoyageEtudeController::class, 'ajouterBeneficiaire']);
+        Route::patch('/enseignants/{id}/lever-blocage', [VoyageEtudeController::class, 'leverBlocage']);
+        Route::get('/enseignants/bloques', [VoyageEtudeController::class, 'enseignantsBloques']);
 Route::post('/enseignants-manuel', [VoyageEtudeController::class, 'creerEnseignantManuel']);
         Route::post('/voyages-etudes/{id}/liste-definitive', [VoyageEtudeController::class, 'publierListeDefinitive']);
         Route::post('/voyages-etudes/{id}/notifier-beneficiaires', [VoyageEtudeController::class, 'notifierBeneficiairesDefinitifs']);

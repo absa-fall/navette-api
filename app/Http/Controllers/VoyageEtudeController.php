@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use App\Models\VoyageEtudeAvis;
 use App\Models\VoyageEtudeJustificatif;
-
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\Rules\Password;
 class VoyageEtudeController extends Controller
 {
     public function publierListe(Request $request)
@@ -169,33 +171,41 @@ foreach ($commission as $membre) {
             }
         }
 
-       $beneficiaire->update([
+     $beneficiaire->update([
             'statut_justificatif'    => 'soumis',
             'date_limite_soumission' => null,
             'alerte_delai_envoyee'   => false,
         ]);
 
+      
+        \App\Models\VoyageEtudeAvis::where('beneficiaire_id', $beneficiaire->id)->delete();
+
         $nomEnseignant = auth()->user()->prenom . ' ' . auth()->user()->nom;
         $destination   = $beneficiaire->voyage->destination;
 
         $vr = User::where('role', 'vice_recteur')->first();
+       $estRenvoi = $beneficiaire->wasChanged('statut_justificatif') && $beneficiaire->getOriginal('statut_justificatif') === 'incomplet';
+        $libelleAction = $estRenvoi ? 'renvoyé ses justificatifs corrigés' : 'soumis ses justificatifs';
+        $rappelMotif = ($estRenvoi && $beneficiaire->dernier_motif_rejet)
+            ? ' Rappel du motif de rejet précédent : ' . $beneficiaire->dernier_motif_rejet
+            : '';
+
         if ($vr) {
             Notification::create([
                 'user_id'  => $vr->id,
                 'type'     => 'justificatif_soumis',
-                'titre'    => 'Justificatifs recus d\'un enseignant',
-                'message'  => $nomEnseignant . ' a soumis ses justificatifs pour le voyage a ' . $destination . '. Veuillez les verifier.',
+                'titre'    => $estRenvoi ? 'Dossier corrigé et renvoyé' : 'Justificatifs reçus d\'un enseignant',
+                'message'  => $nomEnseignant . ' a ' . $libelleAction . ' pour le voyage à ' . $destination . '. Veuillez les vérifier.' . $rappelMotif,
                 'lu'       => false,
             ]);
         }
-
         $commission = User::where('role', 'commission')->get();
         foreach ($commission as $membre) {
             Notification::create([
                 'user_id'  => $membre->id,
                 'type'     => 'dossier_a_valider',
-                'titre'    => 'Nouveau dossier a valider',
-                'message'  => $nomEnseignant . ' a soumis ses justificatifs pour le voyage a ' . $destination . '. Veuillez donner votre avis.',
+                'titre'    => $estRenvoi ? 'Dossier corrigé à valider' : 'Nouveau dossier à valider',
+                'message'  => $nomEnseignant . ' a ' . $libelleAction . ' pour le voyage à ' . $destination . '. Veuillez donner votre avis.' . $rappelMotif,
                 'lu'       => false,
             ]);
         }
@@ -360,19 +370,19 @@ foreach ($commission as $membre) {
                 $vr = User::where('role', 'vice_recteur')->first();
                 if ($vr) {
                     if ($request->avis === 'valide') {
-                        Notification::create([
+                      Notification::create([
                             'user_id' => $vr->id,
                             'type'    => 'dossier_valide_commission',
-                            'titre'   => 'Dossier valide par la commission — Transmis au VR',
-                            'message' => 'La commission a valide le dossier de ' . $nomEns . ' pour le voyage a ' . $destination . ' et l\'a transmis pour votre validation finale.' . ($request->commentaire ? ' Commentaire : ' . $request->commentaire : ''),
+                            'titre'   => 'Dossier validé par la commission',
+                            'message' => 'La commission a validé le dossier de ' . $nomEns . ' pour le voyage à ' . $destination . '. Votre validation finale est requise.' . ($request->commentaire ? ' Commentaire : ' . $request->commentaire : ''),
                             'lu'      => false,
                         ]);
                     } else {
-                        Notification::create([
+                      Notification::create([
                             'user_id' => $vr->id,
                             'type'    => 'avis_commission',
-                            'titre'   => 'Dossier rejete par la commission — Transmis au VR',
-                            'message' => 'La commission a rejete le dossier de ' . $nomEns . ' pour le voyage a ' . $destination . ' et l\'a transmis pour votre information.' . ($request->commentaire ? ' Raison : ' . $request->commentaire : ''),
+                            'titre'   => 'Dossier rejeté par la commission',
+                            'message' => 'La commission a rejeté le dossier de ' . $nomEns . ' pour le voyage à ' . $destination . '.' . ($request->commentaire ? ' Motif : ' . $request->commentaire : ''),
                             'lu'      => false,
                         ]);
                     }
@@ -391,13 +401,15 @@ foreach ($commission as $membre) {
                 'statut_justificatif'     => 'incomplet',
                 'date_limite_soumission'  => $dateLimite,
                 'alerte_delai_envoyee'    => false,
+                'deja_rejete'             => true,
+                'dernier_motif_rejet'     => $request->commentaire,
             ]);
             try {
                 Notification::create([
                     'user_id' => $beneficiaire->enseignant_id,
                     'type'    => 'dossier_rejete',
                     'titre'   => 'Dossier incomplet',
-                    'message' => 'Votre dossier pour le voyage a ' . $destination . ' a ete juge incomplet par le Vice-Recteur. Veuillez completer vos justificatifs et les soumettre avant le ' . $dateLimite->format('d/m/Y') . '.' . ($request->commentaire ? ' Motif : ' . $request->commentaire : ''),
+                    'message' => 'Votre dossier pour le voyage à ' . $destination . ' a été jugé incomplet par le Vice-Recteur. Veuillez compléter vos justificatifs et les soumettre avant le ' . $dateLimite->format('d/m/Y') . '.' . ($request->commentaire ? ' Motif : ' . $request->commentaire : ''),
                     'lu'      => false,
                 ]);
             } catch (\Exception $e) {
@@ -824,26 +836,36 @@ if ($user->role === 'admin') {
         $request->validate([
             'prenom'        => 'required|string',
             'nom'           => 'required|string',
+            'email'         => 'required|email|unique:users',
             'ufr'           => 'nullable|in:SATIC,SDD,ECOMIJ,ISFAR',
             'departement'   => 'nullable|string',
-            'matricule'     => 'nullable|string|unique:users',
+            'matricule'     => 'required|string|unique:users',
             'date_embauche' => 'nullable|date',
         ]);
 
-        $emailGenere = strtolower(str_replace(' ', '', $request->prenom . '.' . $request->nom)) . '.' . time() . '@uadb.local';
+        $code = (string) random_int(100000, 999999);
 
         $enseignant = User::create([
-            'nom'           => $request->nom,
-            'prenom'        => $request->prenom,
-            'email'         => $emailGenere,
-            'password'      => Str::random(16),
-            'role'          => 'enseignant',
-            'ufr'           => $request->ufr,
-            'departement'   => $request->departement,
-            'matricule'     => $request->matricule,
-            'date_embauche' => $request->date_embauche,
-            'is_active'     => true,
+            'nom'                       => $request->nom,
+            'prenom'                    => $request->prenom,
+            'email'                     => $request->email,
+            'password'                  => Str::random(32),
+            'role'                      => 'enseignant',
+            'ufr'                       => $request->ufr,
+            'departement'               => $request->departement,
+            'matricule'                 => $request->matricule,
+            'date_embauche'             => $request->date_embauche,
+            'is_active'                 => true,
+            'compte_actif'              => false,
+            'code_activation'           => Hash::make($code),
+            'code_activation_expire_at' => now()->addHours(48),
         ]);
+
+        try {
+            Mail::to($enseignant->email)->send(new \App\Mail\CodeActivationMail($enseignant, $code));
+        } catch (\Exception $e) {
+            \Log::error('Envoi email code activation: ' . $e->getMessage());
+        }
 
         $chefDept = User::where('role', 'chef_departement')->where('ufr', $enseignant->ufr)->first();
         if ($chefDept) {
@@ -851,31 +873,34 @@ if ($user->role === 'admin') {
                 'user_id' => $chefDept->id,
                 'type'    => 'enseignant_ajoute_manuellement',
                 'titre'   => 'Nouvel enseignant ajoute — ' . $enseignant->ufr,
-                'message' => 'Le Vice-Recteur a ajoute ' . $enseignant->prenom . ' ' . $enseignant->nom . ' a une liste de voyage d\'etudes.',
+                'message' => 'Le Vice-Recteur a ajoute ' . $enseignant->prenom . ' ' . $enseignant->nom . ' a une liste de voyage d\'etudes. Un code d\'activation lui a ete envoye par email.',
                 'lu'      => false,
             ]);
         }
 
         return response()->json([
-            'message'    => 'Enseignant cree avec succes',
+            'message'    => 'Enseignant cree avec succes. Un code d\'activation a ete envoye par email.',
             'enseignant' => $enseignant,
         ], 201);
     }
-
     public function ajouterBeneficiaire(Request $request, $voyageId)
     {
         $request->validate([
             'enseignant_id' => 'required|exists:users,id',
         ]);
-
         $voyage = VoyageEtude::findOrFail($voyageId);
-
         $existe = VoyageEtudeBeneficiaire::where('voyage_id', $voyageId)
             ->where('enseignant_id', $request->enseignant_id)
             ->first();
-
         if ($existe) {
             return response()->json(['message' => 'Cet enseignant est deja dans la liste'], 422);
+        }
+
+        $enseignantACheck = User::find($request->enseignant_id);
+        if ($enseignantACheck && $enseignantACheck->bloque_prochain_voyage) {
+            return response()->json([
+                'message' => 'Cet enseignant n\'est pas eligible : il n\'a pas soumis son rapport/justificatifs du voyage precedent dans les delais. Seul le Vice-Recteur peut lever ce blocage.',
+            ], 422);
         }
 
         $beneficiaire = VoyageEtudeBeneficiaire::create([
@@ -901,7 +926,79 @@ if ($user->role === 'admin') {
             'beneficiaire' => $beneficiaire->load('enseignant'),
         ], 201);
     }
+public function leverBlocage($enseignantId)
+    {
+        if (auth()->user()->role !== 'vice_recteur') {
+            return response()->json(['message' => 'Non autorise'], 403);
+        }
 
+        $enseignant = User::findOrFail($enseignantId);
+        $enseignant->update([
+            'bloque_prochain_voyage' => false,
+            'date_blocage'           => null,
+        ]);
+
+        try {
+            Notification::create([
+                'user_id' => $enseignant->id,
+                'type'    => 'blocage_leve',
+                'titre'   => 'Eligibilite restauree',
+                'message' => 'Le Vice-Recteur a leve votre blocage. Vous etes de nouveau eligible a un prochain voyage d\'etudes.',
+                'lu'      => false,
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Notification levee blocage: ' . $e->getMessage());
+        }
+
+        return response()->json(['message' => 'Blocage leve avec succes']);
+    }
+    public function enseignantsBloques()
+    {
+        $enseignants = User::where('bloque_prochain_voyage', true)
+            ->where('role', 'enseignant')
+            ->orderByDesc('date_blocage')
+            ->get(['id', 'nom', 'prenom', 'email', 'ufr', 'departement', 'date_blocage']);
+
+        return response()->json($enseignants);
+    }
+    public function activerCompte(Request $request)
+    {
+        $request->validate([
+    'email'     => 'required|email',
+    'code'      => 'required|string',
+    'matricule' => 'required|string',
+    'password'  => ['required', 'confirmed', Password::min(8)->mixedCase()->numbers()->symbols()],
+]);
+
+        $enseignant = User::where('email', $request->email)
+            ->where('compte_actif', false)
+            ->first();
+
+        if (!$enseignant) {
+            return response()->json(['message' => 'Compte introuvable ou deja active'], 404);
+        }
+
+        if (!$enseignant->code_activation_expire_at || now()->greaterThan($enseignant->code_activation_expire_at)) {
+            return response()->json(['message' => 'Le code d\'activation a expire. Contactez le Vice-Recteur.'], 422);
+        }
+
+        if (!Hash::check($request->code, $enseignant->code_activation)) {
+            return response()->json(['message' => 'Code d\'activation incorrect'], 422);
+        }
+
+        if (trim($request->matricule) !== trim($enseignant->matricule)) {
+            return response()->json(['message' => 'Le matricule ne correspond pas a nos enregistrements'], 422);
+        }
+
+        $enseignant->update([
+            'password'                  => $request->password,
+            'compte_actif'              => true,
+            'code_activation'           => null,
+            'code_activation_expire_at' => null,
+        ]);
+
+        return response()->json(['message' => 'Compte active avec succes. Vous pouvez maintenant vous connecter.']);
+    }
     public function justificatifDepuisRapport(Request $request, $beneficiaireId)
     {
         $request->validate([

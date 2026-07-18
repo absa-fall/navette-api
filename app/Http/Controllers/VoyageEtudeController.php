@@ -116,105 +116,34 @@ foreach ($commission as $membre) {
 
         return response()->json(['message' => 'Enseignants notifies avec succes']);
     }
+public function mesVoyages()
+{
+    $user = auth()->user();
 
-    public function mesVoyages()
-    {
-        $user = auth()->user();
+    $beneficiaires = VoyageEtudeBeneficiaire::where('enseignant_id', $user->id)
+        ->where('masque_enseignant', false)
+        ->with(['voyage.viceRecteur', 'autorisationAbsence'])
+        ->latest()
+        ->get();
 
-        $beneficiaires = VoyageEtudeBeneficiaire::where('enseignant_id', $user->id)
-            ->where('masque_enseignant', false)
-            ->with(['voyage.viceRecteur', 'autorisationAbsence'])
-            ->latest()
-            ->get();
+    // On récupère en une seule requête le dernier rapport (par voyage) rédigé par cet enseignant,
+    // puis on l'attache à chaque bénéficiaire correspondant (évite une requête par ligne).
+    $voyageIds = $beneficiaires->pluck('voyage_id');
 
-        return response()->json($beneficiaires);
-    }
+    $rapportsParVoyage = \App\Models\RapportVoyage::where('enseignant_id', $user->id)
+        ->whereIn('voyage_id', $voyageIds)
+        ->latest()
+        ->get()
+        ->groupBy('voyage_id');
 
-    public function soumettreJustificatifs(Request $request, $beneficiaireId)
-    {
-        $request->validate([
-            'justificatifs'           => 'required|array|min:1|max:5',
-            'justificatifs.*'         => 'file|mimes:pdf|max:10240',
-            'justificatifs_autres'    => 'nullable|array|max:5',
-            'justificatifs_autres.*'  => 'file|mimes:pdf|max:10240',
-        ]);
+    $beneficiaires->each(function ($b) use ($rapportsParVoyage) {
+        $b->rapport = $rapportsParVoyage->get($b->voyage_id)?->first();
+    });
 
-       $beneficiaire = VoyageEtudeBeneficiaire::where('id', $beneficiaireId)
-            ->where('enseignant_id', auth()->id())
-            ->firstOrFail();
+    return response()->json($beneficiaires);
+}
+ 
 
-        if ($beneficiaire->date_limite_soumission && now()->greaterThan($beneficiaire->date_limite_soumission)) {
-            return response()->json([
-                'message' => 'La date limite du ' . $beneficiaire->date_limite_soumission->format('d/m/Y') . ' pour renvoyer vos justificatifs est depassee. Contactez le Vice-Recteur.',
-            ], 422);
-        }
-
-        foreach ($request->file('justificatifs') as $fichier) {
-            $path = $fichier->store('justificatifs', 'public');
-
-            VoyageEtudeJustificatif::create([
-                'beneficiaire_id' => $beneficiaire->id,
-                'fichier_pdf'     => $path,
-                'nom_original'    => $fichier->getClientOriginalName(),
-            ]);
-        }
-
-        if ($request->hasFile('justificatifs_autres')) {
-            foreach ($request->file('justificatifs_autres') as $fichier) {
-                $path = $fichier->store('justificatifs', 'public');
-
-                VoyageEtudeJustificatif::create([
-                    'beneficiaire_id' => $beneficiaire->id,
-                    'fichier_pdf'     => $path,
-                    'nom_original'    => $fichier->getClientOriginalName(),
-                ]);
-            }
-        }
-
-     $beneficiaire->update([
-            'statut_justificatif'    => 'soumis',
-            'date_limite_soumission' => null,
-            'alerte_delai_envoyee'   => false,
-        ]);
-
-      
-        \App\Models\VoyageEtudeAvis::where('beneficiaire_id', $beneficiaire->id)->delete();
-
-        $nomEnseignant = auth()->user()->prenom . ' ' . auth()->user()->nom;
-        $destination   = $beneficiaire->voyage->destination;
-
-        $vr = User::where('role', 'vice_recteur')->first();
-       $estRenvoi = $beneficiaire->wasChanged('statut_justificatif') && $beneficiaire->getOriginal('statut_justificatif') === 'incomplet';
-        $libelleAction = $estRenvoi ? 'renvoyé ses justificatifs corrigés' : 'soumis ses justificatifs';
-        $rappelMotif = ($estRenvoi && $beneficiaire->dernier_motif_rejet)
-            ? ' Rappel du motif de rejet précédent : ' . $beneficiaire->dernier_motif_rejet
-            : '';
-
-        if ($vr) {
-            Notification::create([
-                'user_id'  => $vr->id,
-                'type'     => 'justificatif_soumis',
-                'titre'    => $estRenvoi ? 'Dossier corrigé et renvoyé' : 'Justificatifs reçus d\'un enseignant',
-                'message'  => $nomEnseignant . ' a ' . $libelleAction . ' pour le voyage à ' . $destination . '. Veuillez les vérifier.' . $rappelMotif,
-                'lu'       => false,
-            ]);
-        }
-        $commission = User::where('role', 'commission')->get();
-        foreach ($commission as $membre) {
-            Notification::create([
-                'user_id'  => $membre->id,
-                'type'     => 'dossier_a_valider',
-                'titre'    => $estRenvoi ? 'Dossier corrigé à valider' : 'Nouveau dossier à valider',
-                'message'  => $nomEnseignant . ' a ' . $libelleAction . ' pour le voyage à ' . $destination . '. Veuillez donner votre avis.' . $rappelMotif,
-                'lu'       => false,
-            ]);
-        }
-
-        return response()->json([
-            'message'      => 'Justificatifs soumis avec succes au Vice-Recteur et a la Commission',
-            'beneficiaire' => $beneficiaire->load('justificatifs'),
-        ]);
-    }
 
     public function dossiersDepartement()
     {
@@ -318,26 +247,117 @@ foreach ($commission as $membre) {
     return response()->json(['message' => 'Voyage supprimé']);
 }
 
-    public function dossiersAValider()
-    {
-        $user = auth()->user();
-        $champ = $user->role === 'commission' ? 'masque_commission' : 'masque_vice_recteur';
 
-        $dossiers = VoyageEtudeBeneficiaire::with([
-            'enseignant', 'voyage', 'justificatifs', 'avis.user', 'autorisationAbsence'
-        ])
-            ->where($champ, false)
-            ->whereIn('statut_justificatif', ['soumis', 'transmis_vr', 'valide', 'incomplet'])
-            ->latest()
-            ->get()
-            ->map(function ($d) {
-                $arr = $d->toArray();
-                $arr['autorisation_absence_id'] = $d->autorisationAbsence?->id;
-                return $arr;
-            });
+public function soumettreJustificatifs(Request $request, $beneficiaireId)
+{
+    $request->validate([
+        'justificatifs'           => 'required|array|min:1|max:5',
+        'justificatifs.*'         => 'file|mimes:pdf|max:10240',
+        'justificatifs_autres'    => 'nullable|array|max:5',
+        'justificatifs_autres.*'  => 'file|mimes:pdf|max:10240',
+    ]);
 
-        return response()->json($dossiers);
+    $beneficiaire = VoyageEtudeBeneficiaire::where('id', $beneficiaireId)
+        ->where('enseignant_id', auth()->id())
+        ->firstOrFail();
+
+    if ($beneficiaire->date_limite_soumission && now()->greaterThan($beneficiaire->date_limite_soumission)) {
+        return response()->json([
+            'message' => 'La date limite du ' . $beneficiaire->date_limite_soumission->format('d/m/Y') . ' pour renvoyer vos justificatifs est depassee. Contactez le Vice-Recteur.',
+        ], 422);
     }
+
+    foreach ($request->file('justificatifs') as $fichier) {
+        $path = $fichier->store('justificatifs', 'public');
+
+        VoyageEtudeJustificatif::create([
+            'beneficiaire_id' => $beneficiaire->id,
+            'fichier_pdf'     => $path,
+            'nom_original'    => $fichier->getClientOriginalName(),
+        ]);
+    }
+
+    if ($request->hasFile('justificatifs_autres')) {
+        foreach ($request->file('justificatifs_autres') as $fichier) {
+            $path = $fichier->store('justificatifs', 'public');
+
+            VoyageEtudeJustificatif::create([
+                'beneficiaire_id' => $beneficiaire->id,
+                'fichier_pdf'     => $path,
+                'nom_original'    => $fichier->getClientOriginalName(),
+            ]);
+        }
+    }
+
+    $beneficiaire->update([
+        'statut_justificatif'    => 'soumis',
+        'date_limite_soumission' => null,
+        'alerte_delai_envoyee'   => false,
+    ]);
+
+    \App\Models\VoyageEtudeAvis::where('beneficiaire_id', $beneficiaire->id)->delete();
+
+    $nomEnseignant = auth()->user()->prenom . ' ' . auth()->user()->nom;
+    $destination   = $beneficiaire->voyage->destination;
+
+    $vr = User::where('role', 'vice_recteur')->first();
+    $estRenvoi = $beneficiaire->wasChanged('statut_justificatif') && $beneficiaire->getOriginal('statut_justificatif') === 'incomplet';
+    $libelleAction = $estRenvoi ? 'renvoyé ses justificatifs corrigés' : 'soumis ses justificatifs';
+    $rappelMotif = ($estRenvoi && $beneficiaire->dernier_motif_rejet)
+        ? ' Rappel du motif de rejet précédent : ' . $beneficiaire->dernier_motif_rejet
+        : '';
+
+    if ($vr) {
+        Notification::create([
+            'user_id'  => $vr->id,
+            'type'     => 'justificatif_soumis',
+            'titre'    => $estRenvoi ? 'Dossier corrigé et renvoyé' : 'Justificatifs reçus d\'un enseignant',
+            'message'  => $nomEnseignant . ' a ' . $libelleAction . ' pour le voyage à ' . $destination . '. Veuillez les vérifier.' . $rappelMotif,
+            'lu'       => false,
+        ]);
+    }
+    $commission = User::where('role', 'commission')->get();
+    foreach ($commission as $membre) {
+        Notification::create([
+            'user_id'  => $membre->id,
+            'type'     => 'dossier_a_valider',
+            'titre'    => $estRenvoi ? 'Dossier corrigé à valider' : 'Nouveau dossier à valider',
+            'message'  => $nomEnseignant . ' a ' . $libelleAction . ' pour le voyage à ' . $destination . '. Veuillez donner votre avis.' . $rappelMotif,
+            'lu'       => false,
+        ]);
+    }
+
+  return response()->json([
+        'message'      => 'Justificatifs soumis avec succes au Vice-Recteur et a la Commission',
+        'beneficiaire' => $beneficiaire->load('justificatifs'),
+    ]);
+}
+
+    public function dossiersAValider()
+{
+    $user = auth()->user();
+    $champ = $user->role === 'commission' ? 'masque_commission' : 'masque_vice_recteur';
+    $dossiers = VoyageEtudeBeneficiaire::with([
+        'enseignant', 'voyage', 'justificatifs', 'avis.user', 'autorisationAbsence'
+    ])
+        ->where($champ, false)
+        ->whereIn('statut_justificatif', ['soumis', 'transmis_vr', 'valide', 'incomplet'])
+        ->latest()
+        ->get()
+        ->map(function ($d) {
+            $arr = $d->toArray();
+            $arr['autorisation_absence_id'] = $d->autorisationAbsence?->id;
+
+            $rapport = \App\Models\RapportVoyage::where('voyage_id', $d->voyage_id)
+                ->where('enseignant_id', $d->enseignant_id)
+                ->latest()
+                ->first();
+            $arr['rapport_id'] = $rapport?->id;
+
+            return $arr;
+        });
+    return response()->json($dossiers);
+}
 
     public function donnerAvis(Request $request, $beneficiaireId)
     {
@@ -392,20 +412,30 @@ foreach ($commission as $membre) {
             }
         }
 
-       if ($request->avis === 'rejete' && $auteur->role === 'vice_recteur') {
-            $dateLimite = $request->date_limite
-                ? \Carbon\Carbon::parse($request->date_limite)
-                : now()->addDays(15);
+     if ($request->avis === 'rejete' && $auteur->role === 'vice_recteur') {
+    $dateLimite = $request->date_limite
+        ? \Carbon\Carbon::parse($request->date_limite)
+        : now()->addDays(15);
 
-            $beneficiaire->update([
-                'statut_justificatif'     => 'incomplet',
-                'date_limite_soumission'  => $dateLimite,
-                'alerte_delai_envoyee'    => false,
-                'deja_rejete'             => true,
-                'dernier_motif_rejet'     => $request->commentaire,
-            ]);
-            try {
-                Notification::create([
+    $beneficiaire->update([
+        'statut_justificatif'     => 'incomplet',
+        'date_limite_soumission'  => $dateLimite,
+        'alerte_delai_envoyee'    => false,
+        'deja_rejete'             => true,
+        'dernier_motif_rejet'     => $request->commentaire,
+    ]);
+
+    // Synchronise le statut du RapportVoyage lié, pour que le frontend
+    // débloque automatiquement la section justificatifs de l'enseignant
+    \App\Models\RapportVoyage::where('enseignant_id', $beneficiaire->enseignant_id)
+        ->where('voyage_id', $beneficiaire->voyage_id)
+        ->where('statut', '!=', 'rejete')
+        ->update([
+            'statut'         => 'rejete',
+            'commentaire_vr' => $request->commentaire ?? 'Dossier jugé incomplet par le Vice-Recteur',
+        ]);
+
+            try { Notification::create([
                     'user_id' => $beneficiaire->enseignant_id,
                     'type'    => 'dossier_rejete',
                     'titre'   => 'Dossier incomplet',
@@ -478,16 +508,18 @@ foreach ($commission as $membre) {
                 continue;
             }
 
-            $avisCommission = $b->avis->filter(fn($a) => $a->user?->role === 'commission' && $a->avis === 'valide');
-            if ($avisCommission->isEmpty()) {
-                $erreurs[] = $nomEns . ' : avis commission manquant';
-                continue;
-            }
+$avisCommission = $b->avis->filter(fn($a) =>
+    in_array($a->user?->role, ['commission', 'vice_recteur']) && $a->avis === 'valide'
+);
+if ($avisCommission->isEmpty()) {
+    $erreurs[] = $nomEns . ' : avis commission manquant';
+    continue;
+}
 
-            $avisVR = $b->avis->first(fn($a) => $a->user?->role === 'vice_recteur' && $a->avis === 'valide');
-            if (!$avisVR) {
-                $erreurs[] = $nomEns . ' : validation VR manquante';
-            }
+$avisVR = $b->avis->first(fn($a) => $a->user?->role === 'vice_recteur' && $a->avis === 'valide');
+if (!$avisVR) {
+    $erreurs[] = $nomEns . ' : validation VR manquante';
+}
         }
 
         if (!empty($erreurs)) {

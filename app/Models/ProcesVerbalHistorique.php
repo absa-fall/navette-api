@@ -24,4 +24,9 @@ class ProcesVerbalHistorique extends Model
     {
         return $this->belongsTo(ProcesVerbal::class);
     }
+
+    public function masquagesPour()
+    {
+        return $this->hasMany(ProcesVerbalHistoriqueMasquage::class, 'historique_id');
+    }
 }

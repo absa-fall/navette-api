@@ -13,23 +13,26 @@ class RapportVoyageController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'voyage_id'   => 'required|exists:voyages_etudes,id',
-            'contenu'     => 'nullable|string',
-            'fichier_pdf' => 'nullable|file|mimes:pdf|max:10240',
-        ]);
+    'voyage_id'   => 'nullable|exists:voyages_etudes,id',
+    'contenu'     => 'nullable|string',
+    'fichier_pdf' => 'nullable|file|mimes:pdf|max:10240',
+]);
 
         if (!$request->filled('contenu') && !$request->hasFile('fichier_pdf')) {
             return response()->json(['message' => 'Veuillez rédiger le rapport ou joindre un fichier PDF.'], 422);
         }
 
-        // Vérifier que l'enseignant est bien bénéficiaire de ce voyage
-        $beneficiaire = \App\Models\VoyageEtudeBeneficiaire::where('voyage_id', $request->voyage_id)
-            ->where('enseignant_id', auth()->id())
-            ->first();
+        $beneficiaire = null;
 
-        if (!$beneficiaire) {
-            return response()->json(['message' => 'Vous n\'etes pas beneficiaire de ce voyage'], 403);
-        }
+if ($request->filled('voyage_id')) {
+    $beneficiaire = \App\Models\VoyageEtudeBeneficiaire::where('voyage_id', $request->voyage_id)
+        ->where('enseignant_id', auth()->id())
+        ->first();
+
+    if (!$beneficiaire) {
+        return response()->json(['message' => 'Vous n\'etes pas beneficiaire de ce voyage'], 403);
+    }
+}
 
         $fichierPath = null;
 
@@ -42,38 +45,75 @@ class RapportVoyageController extends Controller
 $pdf = Pdf::loadView('pdf.rapport-voyage', [
     'donnees'     => $donnees,
     'enseignant'  => $enseignant,
-    'voyage'      => $beneficiaire->voyage,
+    'voyage'      => $beneficiaire?->voyage,
     'date'        => now(),
 ]);
 
-            $nomFichier = 'rapports/rapport_' . $beneficiaire->id . '_' . now()->timestamp . '.pdf';
+           $identifiant = $beneficiaire->id ?? auth()->id();
+$nomFichier = 'rapports/rapport_' . $identifiant . '_' . now()->timestamp . '.pdf';
             \Storage::disk('public')->put($nomFichier, $pdf->output());
             $fichierPath = $nomFichier;
         }
 
-        // NOTE: le rapport est créé en BROUILLON. Il n'est ni notifié au Chef de
-        // Département, ni ajouté aux justificatifs tant qu'il n'a pas été signé
-        // et explicitement transmis via transmettre(). Voir cette méthode plus bas
-        // pour la logique de notification/justificatif, déplacée depuis ici.
         $rapport = RapportVoyage::create([
-            'voyage_id'     => $request->voyage_id,
-            'enseignant_id' => auth()->id(),
-            'contenu'       => $request->contenu ?? '',
-            'fichier_pdf'   => $fichierPath,
-            'date_depot'    => null,
-            'statut'        => 'brouillon',
-        ]);
+    'voyage_id'     => $request->voyage_id ?: null,
+    'enseignant_id' => auth()->id(),
+    'contenu'       => $request->contenu ?? '',
+    'fichier_pdf'   => $fichierPath,
+    'date_depot'    => null,
+    'statut'        => 'brouillon',
+]);
 
         return response()->json([
             'message' => 'Brouillon enregistré. Relisez-le puis transmettez-le une fois signé.',
             'rapport' => $rapport
         ], 201);
     }
+public function rattacherVoyage(Request $request, $id)
+{
+    $request->validate([
+        'voyage_id' => 'required|exists:voyages_etudes,id',
+    ]);
 
+    $rapport = RapportVoyage::where('id', $id)
+        ->where('enseignant_id', auth()->id())
+        ->firstOrFail();
 
+    $beneficiaire = \App\Models\VoyageEtudeBeneficiaire::where('voyage_id', $request->voyage_id)
+        ->where('enseignant_id', auth()->id())
+        ->first();
 
-// Remplace ta méthode transmettre() actuelle dans RapportVoyageController par celle-ci.
-// Ajoute en haut du fichier : use Illuminate\Support\Facades\DB;
+    if (!$beneficiaire) {
+        return response()->json(['message' => 'Vous n\'êtes pas bénéficiaire de ce voyage'], 403);
+    }
+
+    $rapport->update(['voyage_id' => $request->voyage_id]);
+
+    // Si le rapport a été rédigé en texte (pas un PDF téléversé), on régénère
+    // le PDF avec les vraies infos du voyage maintenant qu'il est rattaché,
+    // pour qu'il ressemble à un rapport rédigé directement pour ce voyage.
+    if (!empty($rapport->contenu)) {
+        $donnees = json_decode($rapport->contenu, true) ?? [];
+        $enseignant = auth()->user();
+
+        $pdf = Pdf::loadView('pdf.rapport-voyage', [
+            'donnees'    => $donnees,
+            'enseignant' => $enseignant,
+            'voyage'     => $beneficiaire->voyage,
+            'date'       => now(),
+            'rapport'    => $rapport,
+        ]);
+
+        $nomFichier = 'rapports/rapport_' . $rapport->id . '_' . now()->timestamp . '.pdf';
+        \Storage::disk('public')->put($nomFichier, $pdf->output());
+        $rapport->update(['fichier_pdf' => $nomFichier]);
+    }
+
+    return response()->json([
+        'message' => 'Rapport rattaché au voyage avec succès',
+        'rapport' => $rapport->fresh(),
+    ]);
+}
 
 public function transmettre(Request $request, $id)
 {
@@ -83,6 +123,9 @@ public function transmettre(Request $request, $id)
         'justificatifs.*'         => 'file|mimes:pdf|max:10240',
         'justificatifs_autres'    => 'nullable|array|max:5',
         'justificatifs_autres.*'  => 'file|mimes:pdf|max:10240',
+        'destination_libre'       => 'nullable|string|max:255',
+        'date_debut_libre'        => 'nullable|date',
+        'date_fin_libre'          => 'nullable|date',
     ]);
 
     $rapport = RapportVoyage::with('voyage')->findOrFail($id);
@@ -108,12 +151,15 @@ public function transmettre(Request $request, $id)
 
     return DB::transaction(function () use ($request, $rapport, $beneficiaire) {
 
-        // 1. Signature + passage du rapport en "soumis"
-        $rapport->update([
+       
+        $rapport->update(array_filter([
             'signature_enseignant' => $request->signature,
-            'statut'     => 'soumis',
-            'date_depot' => now(),
-        ]);
+            'statut'               => 'soumis',
+            'date_depot'           => now(),
+            'destination_libre'    => !$rapport->voyage_id ? $request->destination_libre : null,
+            'date_debut_libre'     => !$rapport->voyage_id ? $request->date_debut_libre : null,
+            'date_fin_libre'       => !$rapport->voyage_id ? $request->date_fin_libre : null,
+        ], fn($v, $k) => !in_array($k, ['destination_libre','date_debut_libre','date_fin_libre']) || $v !== null, ARRAY_FILTER_USE_BOTH));
 // Régénère le PDF avec la signature maintenant disponible, dans le même format que la vue React
 $donnees = json_decode($rapport->contenu, true) ?? [];
 $enseignant = auth()->user();
@@ -123,7 +169,7 @@ $pdf = Pdf::loadView('pdf.rapport-voyage', [
     'enseignant' => $enseignant,
     'voyage'     => $rapport->voyage,
     'date'       => now(),
-    'rapport'    => $rapport, // pour accéder à date_depot, signature_enseignant, statut, commentaire_vr
+    'rapport'    => $rapport, // pour accéder à date_depot, signature_enseignant, statut, commentaire_vr, destination_libre, date_debut_libre, date_fin_libre
 ]);
 
 $nomFichier = 'rapports/rapport_' . $rapport->id . '_' . now()->timestamp . '.pdf';
@@ -177,7 +223,7 @@ $rapport->update(['fichier_pdf' => $nomFichier]);
         // 5. Notifications — dossier complet (rapport + justificatifs) au VR et à la Commission
         $enseignant     = auth()->user();
         $nomEnseignant  = $enseignant->prenom . ' ' . $enseignant->nom;
-        $destination    = $rapport->voyage->destination ?? '';
+        $destination    = $rapport->voyage?->destination ?? '';
         $libelleAction  = $estRenvoi ? 'renvoyé son dossier corrigé (rapport + justificatifs)' : 'soumis son dossier complet (rapport + justificatifs)';
         $rappelMotif    = ($estRenvoi && $beneficiaire?->dernier_motif_rejet)
             ? ' Rappel du motif de rejet précédent : ' . $beneficiaire->dernier_motif_rejet

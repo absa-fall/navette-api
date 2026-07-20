@@ -9,7 +9,7 @@ return new class extends Migration
     public function up()
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->string('nationalite')->default('Sénégalaise')->nullable();
+            $table->string('nationalite')->default('Sénégalais')->nullable();
             $table->string('grade_fonction')->default('Chauffeur')->nullable();
         });
     }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Reservation;
 use App\Models\Notification;
 use App\Models\User;
+use App\Models\OrdreMission;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
@@ -24,7 +25,52 @@ class ReservationController extends Controller
     ];
 
     // ============================================================
+    // ✅ AJOUT : Vérifie que la réservation appartient bien à une
+    // navette (OrdreMission) assignée au chauffeur actuellement connecté.
+    // Utilisé par confirmer(), refuser(), annulerChauffeur(), reactiver()
+    // pour empêcher un chauffeur d'agir sur la réservation d'une autre navette.
+    // ============================================================
+    private function reservationAppartientAuChauffeur(Reservation $reservation): bool
+    {
+        if (!$reservation->navette_id) {
+            return false;
+        }
+
+        $navette = OrdreMission::find($reservation->navette_id);
+
+        return $navette && $navette->chauffeur_id === auth()->id();
+    }
+
+    // ============================================================
+    // ✅ AJOUT : Vérifie s'il reste de la place pour un sens donné
+    // (aller ou retour) sur une navette, en se basant sur les
+    // réservations déjà CONFIRMÉES (pas les demandes en attente).
+    // Aller et retour sont deux trajets physiques distincts, donc
+    // deux quotas de places distincts.
+    // ============================================================
+    private function placeDisponible(OrdreMission $navette, string $sens): bool
+    {
+        if (!$navette->vehicule_id) {
+            return true; // pas de véhicule assigné => pas de limite
+        }
+
+        $vehicule = \App\Models\Vehicule::find($navette->vehicule_id);
+        if (!$vehicule || !$vehicule->capacite) {
+            return true;
+        }
+
+        $placesOccupees = Reservation::where('navette_id', $navette->id)
+            ->where('trajet_sens', $sens)
+            ->where('statut', 'confirmee')
+            ->count();
+
+        return $placesOccupees < $vehicule->capacite;
+    }
+
+    // ============================================================
     // STORE : Créer une réservation (1 ou 2 lignes si aller_retour)
+    // ✅ MODIFIÉ : navette_id remplace la saisie libre de date/heure
+    // ✅ AJOUT : vérification du nombre de places disponibles
     // ============================================================
    public function store(Request $request)
 {
@@ -37,22 +83,70 @@ class ReservationController extends Controller
         'type_trajet'       => 'required|in:aller,retour,aller_retour',
         'ville_depart'      => 'required|string|max:100',
         'ville_arrivee'     => 'required|string|max:100',
-        'date_reservation'  => 'required|date',
-        'heure_reservation' => 'required',
+        'navette_id'        => 'required|exists:ordres_mission,id',
     ]);
 
     $user = auth()->user();
 
-   
-    $dejaReserve = Reservation::where('user_id', $user->id)
-        ->where('date_reservation', $request->date_reservation)
+    // ✅ On récupère la navette réellement publiée
+    $navette = OrdreMission::findOrFail($request->navette_id);
+
+    // ✅ Bloque si une réservation ALLER-RETOUR active existe déjà pour CETTE navette
+    $dejaReserveAllerRetour = Reservation::where('user_id', $user->id)
+        ->where('navette_id', $navette->id)
         ->whereNotIn('statut', ['annulee', 'refusee'])
+        ->where('type_trajet', 'aller_retour')
         ->exists();
 
-    if ($dejaReserve) {
+    if ($dejaReserveAllerRetour) {
         return response()->json([
-            'message' => 'Vous avez déjà une réservation active pour cette date. Veuillez annuler votre réservation existante avant d\'en créer une nouvelle.',
+            'message' => 'Vous avez déjà une réservation aller-retour active pour cette navette. Veuillez l\'annuler avant d\'en créer une nouvelle.',
         ], 403);
+    }
+
+    if ($request->type_trajet === 'aller_retour') {
+        // ✅ Un nouvel aller-retour est bloqué si une réservation simple
+        // (aller OU retour) existe déjà pour cette navette.
+        $dejaReserveSimple = Reservation::where('user_id', $user->id)
+            ->where('navette_id', $navette->id)
+            ->whereNotIn('statut', ['annulee', 'refusee'])
+            ->exists();
+
+        if ($dejaReserveSimple) {
+            return response()->json([
+                'message' => 'Vous avez déjà une réservation active pour cette navette. Veuillez annuler votre réservation existante avant d\'en créer une nouvelle.',
+            ], 403);
+        }
+    } else {
+        // ✅ Aller (ou retour) seul : bloqué uniquement si le MÊME sens
+        // est déjà réservé pour cette navette. L'autre sens reste réservable.
+        $dejaReserveMemeSens = Reservation::where('user_id', $user->id)
+            ->where('navette_id', $navette->id)
+            ->whereNotIn('statut', ['annulee', 'refusee'])
+            ->where('trajet_sens', $request->type_trajet)
+            ->exists();
+
+        if ($dejaReserveMemeSens) {
+            return response()->json([
+                'message' => 'Vous avez déjà une réservation "' . $request->type_trajet . '" active pour cette navette.',
+            ], 403);
+        }
+    }
+
+    // ✅ AJOUT : vérification de la capacité du véhicule
+    // Pour un aller-retour, il faut de la place dans les DEUX sens.
+    if ($request->type_trajet === 'aller_retour') {
+        if (!$this->placeDisponible($navette, 'aller') || !$this->placeDisponible($navette, 'retour')) {
+            return response()->json([
+                'message' => 'Nombre de place atteint pour cette navette.',
+            ], 403);
+        }
+    } else {
+        if (!$this->placeDisponible($navette, $request->type_trajet)) {
+            return response()->json([
+                'message' => 'Nombre de place atteint pour cette navette.',
+            ], 403);
+        }
     }
 
     if (!$user->qr_code) {
@@ -70,6 +164,7 @@ class ReservationController extends Controller
 
     $baseData = [
         'user_id'          => $user->id,
+        'navette_id'       => $navette->id,
         'nom'              => $request->nom,
         'prenom'           => $request->prenom,
         'categorie'        => $request->categorie,
@@ -78,8 +173,8 @@ class ReservationController extends Controller
         'type_trajet'      => $request->type_trajet,
         'ville_depart'     => $request->ville_depart,
         'ville_arrivee'    => $request->ville_arrivee,
-        'date_reservation' => $request->date_reservation,
-        'heure_reservation'=> $request->heure_reservation,
+        'date_reservation' => $navette->date_depart,
+        'heure_reservation'=> $navette->heure_depart,
         'statut'           => 'en_attente_confirmation',
         'montant_retenue'  => $montantUnite,
     ];
@@ -145,13 +240,38 @@ class ReservationController extends Controller
 
     // ============================================================
     // CONFIRMER : Chauffeur confirme
+    // ✅ AJOUT : vérification du nombre de places disponibles
     // ============================================================
     public function confirmer(Request $request, $id)
     {
         $reservation = Reservation::findOrFail($id);
 
+        // ✅ AJOUT : le chauffeur ne peut confirmer que les réservations
+        // liées à la navette (OrdreMission) qui lui est assignée.
+        if (!$this->reservationAppartientAuChauffeur($reservation)) {
+            return response()->json(['message' => 'Non autorisé : cette réservation ne concerne pas votre navette'], 403);
+        }
+
         if ($reservation->statut !== 'en_attente_confirmation') {
             return response()->json(['message' => 'Action non autorisée'], 403);
+        }
+
+        // ✅ Bloque la confirmation si la navette liée a déjà été marquée
+        // comme exécutée par le chauffeur (fin de service pour cette navette)
+        if ($reservation->navette_id) {
+            $navette = OrdreMission::find($reservation->navette_id);
+            if ($navette && $navette->statut === 'execute') {
+                return response()->json([
+                    'message' => 'Impossible de confirmer cette réservation : la navette a déjà été marquée comme exécutée.',
+                ], 403);
+            }
+
+            // ✅ AJOUT : vérification du nombre de places disponibles
+            if ($navette && !$this->placeDisponible($navette, $reservation->trajet_sens)) {
+                return response()->json([
+                    'message' => 'Nombre de place atteint',
+                ], 403);
+            }
         }
 
         $reservation->update([
@@ -190,6 +310,12 @@ class ReservationController extends Controller
         ]);
 
         $reservation = Reservation::findOrFail($id);
+
+        // ✅ AJOUT : le chauffeur ne peut refuser que les réservations
+        // liées à la navette (OrdreMission) qui lui est assignée.
+        if (!$this->reservationAppartientAuChauffeur($reservation)) {
+            return response()->json(['message' => 'Non autorisé : cette réservation ne concerne pas votre navette'], 403);
+        }
 
         if ($reservation->statut !== 'en_attente_confirmation') {
             return response()->json(['message' => 'Action non autorisée'], 403);
@@ -256,7 +382,7 @@ class ReservationController extends Controller
             ]);
         }
 
-        // ✅ NOUVEAU : Notifier tous les SGVR
+        // Notifier tous les SGVR
         $sgvrs = User::where('role', 'sg_vr')->get();
         foreach ($sgvrs as $sgvr) {
             Notification::create([
@@ -355,13 +481,14 @@ class ReservationController extends Controller
         ]);
     }
 
-    
+
     public function mesReservations()
     {
         $user = auth()->user();
 
-        $reservations = Reservation::where('user_id', $user->id)
-            ->where('masquee_passager', false) 
+        $reservations = Reservation::with('navette:id,statut,date_retour')
+            ->where('user_id', $user->id)
+            ->where('masquee_passager', false)
             ->orderBy('date_reservation', 'desc')
             ->orderBy('trajet_sens')
             ->get();
@@ -424,6 +551,11 @@ class ReservationController extends Controller
         $reservations = Reservation::whereIn('statut', [
             'en_attente_confirmation', 'confirmee', 'en_cours', 'terminee', 'annulee'
         ])
+        // ✅ CORRECTIF : on filtre désormais par navette_id (l'ordre de mission
+        // exact assigné au chauffeur), pas uniquement par date. Avant ce correctif,
+        // si deux navettes différentes partaient le même jour, un chauffeur voyait
+        // aussi les réservations de la navette d'un autre chauffeur.
+        ->where('navette_id', $ordreMission->id)
         ->whereDate('date_reservation', $ordreMission->date_depart)
         ->orderBy('heure_reservation')
         ->get();
@@ -435,20 +567,26 @@ class ReservationController extends Controller
     $request->validate([
         'motif' => 'required|string|max:255',
     ]);
- 
+
     $reservation = Reservation::findOrFail($id);
- 
+
+    // ✅ AJOUT : le chauffeur ne peut annuler que les réservations
+    // liées à la navette (OrdreMission) qui lui est assignée.
+    if (!$this->reservationAppartientAuChauffeur($reservation)) {
+        return response()->json(['message' => 'Non autorisé : cette réservation ne concerne pas votre navette'], 403);
+    }
+
     if ($reservation->statut !== 'confirmee') {
         return response()->json(['message' => 'Annulation impossible pour ce statut'], 403);
     }
- 
+
     $reservation->update([
         'statut'                    => 'annulee',
         'motif_annulation_chauffeur'=> $request->motif,
     ]);
- 
+
     $sensLabel = $reservation->trajet_sens === 'retour' ? '(Retour)' : '(Aller)';
- 
+
     // ✅ Notifier le passager
     $passager = User::find($reservation->user_id);
     if ($passager) {
@@ -463,7 +601,7 @@ class ReservationController extends Controller
             'lu'      => false,
         ]);
     }
- 
+
     // ✅ Notifier les SGVR
     $sgvrs = User::where('role', 'sg_vr')->get();
     foreach ($sgvrs as $sgvr) {
@@ -478,10 +616,10 @@ class ReservationController extends Controller
             'lu'      => false,
         ]);
     }
- 
+
     return response()->json(['message' => 'Réservation annulée avec succès']);
 }
- 
+
 // ============================================================
 // RÉACTIVER : Chauffeur réactive une résa annulée → confirmée
 // ============================================================
@@ -490,21 +628,37 @@ public function reactiver(Request $request, $id)
     $request->validate([
         'motif' => 'required|string|max:255',
     ]);
- 
+
     $reservation = Reservation::findOrFail($id);
- 
+
+    // ✅ AJOUT : le chauffeur ne peut réactiver que les réservations
+    // liées à la navette (OrdreMission) qui lui est assignée.
+    if (!$this->reservationAppartientAuChauffeur($reservation)) {
+        return response()->json(['message' => 'Non autorisé : cette réservation ne concerne pas votre navette'], 403);
+    }
+
     if ($reservation->statut !== 'annulee') {
         return response()->json(['message' => 'Réactivation impossible pour ce statut'], 403);
     }
- 
+
+    // ✅ AJOUT : vérification du nombre de places disponibles avant réactivation
+    if ($reservation->navette_id) {
+        $navette = OrdreMission::find($reservation->navette_id);
+        if ($navette && !$this->placeDisponible($navette, $reservation->trajet_sens)) {
+            return response()->json([
+                'message' => 'Nombre de place atteint',
+            ], 403);
+        }
+    }
+
     $reservation->update([
         'statut'                    => 'confirmee',
         'chauffeur_id'              => auth()->id(),
         'motif_annulation_chauffeur'=> null, // reset
     ]);
- 
+
     $sensLabel = $reservation->trajet_sens === 'retour' ? '(Retour)' : '(Aller)';
- 
+
     //  Notifier le passager
     $passager = User::find($reservation->user_id);
     if ($passager) {
@@ -520,7 +674,7 @@ public function reactiver(Request $request, $id)
             'lu'      => false,
         ]);
     }
- 
+
     return response()->json([
         'message'     => 'Réservation réactivée avec succès',
         'reservation' => $reservation,
@@ -533,9 +687,9 @@ public function reactiver(Request $request, $id)
     public function pourSGVR()
     {
         try {
-            $reservations = Reservation::with('user:id,qr_code,email')
+            $reservations = Reservation::with(['user:id,qr_code,email', 'navette:id,date_retour,statut'])
                 ->select([
-                    'id', 'user_id', 'groupe_id', 'trajet_sens',
+                    'id', 'user_id', 'navette_id', 'groupe_id', 'trajet_sens',
                     'nom', 'prenom', 'categorie', 'type_profil',
                     'ufr', 'ville_depart', 'ville_arrivee', 'type_trajet',
                     'date_reservation', 'heure_reservation', 'statut',
@@ -556,7 +710,6 @@ public function reactiver(Request $request, $id)
 
     // ============================================================
     // SUPPRIMER MA RÉSERVATION
-    // ✅ CORRECTION : masquer au lieu de supprimer en DB
     // ============================================================
     public function supprimerMaReservation($id)
     {
@@ -605,6 +758,59 @@ public function reactiver(Request $request, $id)
         $reservation->update(['montant_retenue' => $request->montant_retenue]);
         return response()->json(['message' => 'Montant mis à jour', 'reservation' => $reservation]);
     }
+
+    
+   public function cloturerIncident(Request $request, $id)
+{
+    $request->validate([
+        'statut'          => 'required|in:terminee,annulee',
+        'montant_retenue' => 'nullable|numeric|min:0',
+    ]);
+
+    $reservation = Reservation::findOrFail($id);
+
+    if ($reservation->statut !== 'incident') {
+        return response()->json(['message' => 'Cette réservation n\'est pas en incident'], 403);
+    }
+
+    $data = ['statut' => $request->statut];
+
+    // ✅ Même convention que scannerPassager()/scannerBus()/validerDescente() :
+    // "terminee" implique toujours validee_montee = true, sinon cette
+    // réservation n'apparaîtrait jamais dans le récapitulatif hebdomadaire
+    // (RecapitulatifHebdoController filtre sur validee_montee, pas sur statut).
+    if ($request->statut === 'terminee') {
+        $data['validee_montee'] = true;
+    }
+
+    if ($request->has('montant_retenue')) {
+        $data['montant_retenue'] = $request->montant_retenue;
+    }
+
+    $reservation->update($data);
+
+    $passager = User::find($reservation->user_id);
+    if ($passager) {
+        $sensLabel   = $reservation->trajet_sens === 'retour' ? '(Retour)' : '(Aller)';
+        $statutLabel = $request->statut === 'terminee' ? 'clôturée' : 'annulée';
+
+        Notification::create([
+            'user_id' => $passager->id,
+            'type'    => 'incident_reservation_cloturee',
+            'titre'   => 'Suite à l\'incident sur votre navette',
+            'message' => 'Votre réservation ' . $sensLabel . ' du '
+                . Carbon::parse($reservation->date_reservation)->format('d/m/Y')
+                . ' (' . $reservation->ville_depart . ' → ' . $reservation->ville_arrivee
+                . ') a été ' . $statutLabel . ' par le SGVR suite à l\'incident signalé.',
+            'lu'      => false,
+        ]);
+    }
+
+    return response()->json([
+        'message'     => 'Incident clôturé avec succès',
+        'reservation' => $reservation,
+    ]);
+}
 
     public function validerMontee(Request $request)
     {
@@ -708,5 +914,30 @@ public function reactiver(Request $request, $id)
             'recapitulatif' => array_values($recapitulatif),
             'total_general' => array_sum(array_column($recapitulatif, 'montant_total')),
         ]);
+    }
+
+    // ============================================================
+    // Véhicule actif pour le passager connecté
+    // ============================================================
+    public function maNavetteActive()
+    {
+        $user = auth()->user();
+
+        $reservation = Reservation::where('user_id', $user->id)
+            ->where('validee_montee', true)
+            ->whereDate('date_reservation', today())
+            ->first();
+
+        if (!$reservation || !$reservation->chauffeur_id) {
+            return response()->json(['vehicule_id' => null]);
+        }
+
+        $ordre = \App\Models\OrdreMission::where('chauffeur_id', $reservation->chauffeur_id)
+            ->where('statut_chauffeur', 'accepte')
+            ->whereDate('date_depart', today())
+            ->latest()
+            ->first();
+
+        return response()->json(['vehicule_id' => $ordre->vehicule_id ?? null]);
     }
 }

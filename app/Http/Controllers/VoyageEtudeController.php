@@ -1031,52 +1031,60 @@ public function leverBlocage($enseignantId)
 
         return response()->json(['message' => 'Compte active avec succes. Vous pouvez maintenant vous connecter.']);
     }
-    public function justificatifDepuisRapport(Request $request, $beneficiaireId)
-    {
-        $request->validate([
-            'rapport_id' => 'required|exists:rapport_voyages,id',
-        ]);
+  public function justificatifDepuisRapport(Request $request, $beneficiaireId)
+{
+    $request->validate([
+        'rapport_id' => 'required|exists:rapports_voyage,id',
+    ]);
 
-        $beneficiaire = VoyageEtudeBeneficiaire::where('id', $beneficiaireId)
-            ->where('enseignant_id', auth()->id())
-            ->firstOrFail();
+    $beneficiaire = VoyageEtudeBeneficiaire::with('voyage')
+        ->where('id', $beneficiaireId)
+        ->where('enseignant_id', auth()->id())
+        ->firstOrFail();
 
-        $rapport = \App\Models\RapportVoyage::where('id', $request->rapport_id)
-            ->where('enseignant_id', auth()->id())
-            ->where('statut', 'valide')
-            ->firstOrFail();
+    $rapport = \App\Models\RapportVoyage::where('id', $request->rapport_id)
+        ->where('enseignant_id', auth()->id())
+        ->firstOrFail();
 
-        VoyageEtudeJustificatif::create([
-            'beneficiaire_id' => $beneficiaire->id,
-            'fichier_pdf'     => $rapport->fichier_pdf,
-            'nom_original'    => 'Rapport_' . $rapport->voyage->destination . '.pdf',
-        ]);
+  
+    $rapport->update([
+        'voyage_id'  => $beneficiaire->voyage_id,
+        'statut'     => 'soumis',
+        'date_depot' => $rapport->date_depot ?? now(),
+    ]);
 
-        $beneficiaire->update([
-            'statut_justificatif' => 'soumis'
-        ]);
+    VoyageEtudeJustificatif::create([
+        'beneficiaire_id' => $beneficiaire->id,
+        'fichier_pdf'     => $rapport->fichier_pdf,
+        'nom_original'    => 'Rapport_' . ($beneficiaire->voyage->destination ?? 'voyage') . '.pdf',
+    ]);
 
-        $enseignant = auth()->user();
-        $chefDept = User::where('role', 'chef_departement')
-            ->where('ufr', $enseignant->ufr)
-            ->first();
+    $beneficiaire->update([
+        'statut_justificatif' => 'soumis',
+    ]);
 
-        if ($chefDept) {
-            Notification::create([
-                'user_id' => $chefDept->id,
-                'type'    => 'justificatif_soumis',
-                'titre'   => 'Rapport soumis comme justificatif — ' . $enseignant->ufr,
-                'message' => $enseignant->prenom . ' ' . $enseignant->nom .
-                    ' a soumis son rapport de voyage comme justificatif pour le voyage a ' .
-                    $beneficiaire->voyage->destination . '.',
-                'lu'      => false,
-            ]);
-        }
+    $enseignant = auth()->user();
+    $chefDept = User::where('role', 'chef_departement')
+        ->where('ufr', $enseignant->ufr)
+        ->first();
 
-        return response()->json([
-            'message' => 'Rapport envoye comme justificatif avec succes'
+    if ($chefDept) {
+        Notification::create([
+            'user_id' => $chefDept->id,
+            'type'    => 'justificatif_soumis',
+            'titre'   => 'Rapport soumis comme justificatif — ' . $enseignant->ufr,
+            'message' => $enseignant->prenom . ' ' . $enseignant->nom .
+                ' a soumis son rapport de voyage comme justificatif pour le voyage à ' .
+                ($beneficiaire->voyage->destination ?? '—') . '.',
+            'lu'      => false,
         ]);
     }
+
+    return response()->json([
+        'message' => 'Rapport envoyé comme justificatif avec succès',
+        'rapport' => $rapport,
+    ]);
+}
 
     public function voirAutorisationSortie($beneficiaireId)
     {

@@ -11,6 +11,7 @@ class Reservation extends Model
 
    protected $fillable = [
     'user_id',
+    'navette_id',
     'groupe_id',
     'nom',
     'prenom',
@@ -86,6 +87,11 @@ class Reservation extends Model
     public function chauffeur()
     {
         return $this->belongsTo(User::class, 'chauffeur_id');
+    }
+
+    public function navette()
+    {
+        return $this->belongsTo(OrdreMission::class, 'navette_id');
     }
 
     //Retourne l'autre réservation du même groupe (aller ↔ retour)

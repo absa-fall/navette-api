@@ -14,6 +14,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AutorisationAbsenceController;
 use App\Http\Controllers\ArreteVoyageController;
 use App\Http\Controllers\ProcesVerbalController;
+use App\Http\Controllers\VehiculePositionController;
 
 // ============================================
 // ROUTES PUBLIQUES
@@ -25,7 +26,7 @@ Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 Route::post('/activer-compte', [VoyageEtudeController::class, 'activerCompte']);
 
-Route::post('/reservations', [ReservationController::class, 'store']);
+
 Route::post('/validation/montee', [ReservationController::class, 'validerMontee']);
 
 Route::get('/validation/verifier/{qrCode}', [ReservationController::class, 'verifierQR']);
@@ -42,12 +43,13 @@ Route::put('/profile/password', [ProfileController::class, 'changePassword'])->m
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/reservations/{id}/statut', [ReservationController::class, 'statut']);
+Route::post('/reservations', [ReservationController::class, 'store']);
+    Route::middleware('role:chauffeur')->group(function () {
+    Route::patch('/vehicules/{id}/position', [VehiculePositionController::class, 'update']);
+    Route::patch('/vehicules/{id}/position/stop', [VehiculePositionController::class, 'stop']);
+});
 
-    // NOTE: POST /reservations retiré d'ici — déjà déclarée en public plus haut.
-    // La version publique répondait toujours en premier, celle-ci n'était jamais
-    // atteinte et donnait une fausse impression de protection par auth:sanctum.
-    // Si la création de réservation doit être protégée, retire plutôt la ligne
-    // publique au lieu de la dupliquer ici.
+Route::get('/vehicules/{id}/position', [VehiculePositionController::class, 'show']);
 
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -69,6 +71,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/recapitulatifs/{id}/valider', [RecapitulatifHebdoController::class, 'valider']);
         Route::delete('/recapitulatifs/supprimer-selection', [RecapitulatifHebdoController::class, 'supprimerSelection']);
         Route::get('/reservations/sgvr', [ReservationController::class, 'pourSGVR']);
+        Route::patch('/reservations/{id}/cloturer-incident', [ReservationController::class, 'cloturerIncident']);
     });
 
     // ============================================
@@ -134,6 +137,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reservations/chauffeur', [ReservationController::class, 'pourChauffeur']);
     Route::get('/mes-reservations', [ReservationController::class, 'mesReservations']);
     Route::get('/mes-reservations/export-pdf', [ReservationController::class, 'exporterPdf']);
+     Route::get('/ma-navette-active', [ReservationController::class, 'maNavetteActive']);
     Route::delete('/mes-reservations/{id}', [ReservationController::class, 'supprimerMaReservation']);
     Route::patch('/reservations/{id}/montant', [ReservationController::class, 'updateMontant']);
     Route::post('/reservations/{id}/annuler', [ReservationController::class, 'annuler']);
@@ -181,9 +185,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/reservations/{id}/annuler-chauffeur', [ReservationController::class, 'annulerChauffeur']);
     });
 
-    // ============================================
-    // PROCES-VERBAUX
-    // ============================================
+
     Route::get('/proces-verbaux', [ProcesVerbalController::class, 'index']);
     Route::get('/proces-verbaux/{annee}', [ProcesVerbalController::class, 'show']);
     Route::put('/proces-verbaux/{annee}', [ProcesVerbalController::class, 'update']);
@@ -217,12 +219,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:enseignant')->group(function () {
         Route::get('/mes-voyages-etudes', [VoyageEtudeController::class, 'mesVoyages']);
         Route::post('/voyages-etudes/beneficiaire/{id}/justificatifs', [VoyageEtudeController::class, 'soumettreJustificatifs']);
+       Route::post('/voyages-etudes/beneficiaire/{id}/justificatif-rapport', [VoyageEtudeController::class, 'justificatifDepuisRapport']);
 
         Route::patch('/voyages-etudes/beneficiaire/{id}/demander-autorisation', [VoyageEtudeController::class, 'demanderAutorisation']);
         Route::post('/voyages-etudes/beneficiaire/{id}/autorisation-absence', [AutorisationAbsenceController::class, 'store']);
         Route::patch('/voyages-etudes/beneficiaire/{id}/masquer', [VoyageEtudeController::class, 'masquerVoyage']);
         Route::patch('/autorisations-absence/{id}/signer', [AutorisationAbsenceController::class, 'signer']);
         Route::patch('/autorisations-absence/{id}/transmettre-vers-chef', [AutorisationAbsenceController::class, 'transmettreVersChefDepartement']);
+
+       // --- RAPPORTS DE VOYAGE : actions spécifiques enseignant (ajout) ---
+        Route::patch('/rapports/{id}/rattacher-voyage', [RapportVoyageController::class, 'rattacherVoyage']);
+        Route::delete('/rapports/{id}/historique', [RapportVoyageController::class, 'supprimerHistorique']);
+        // --- fin ajout ---
     });
 
     // --- CHEF DE DÉPARTEMENT ---
@@ -264,6 +272,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // --- RECTEUR + VICE-RECTEUR ---
     Route::middleware('role:recteur,vice_recteur')->group(function () {
         Route::get('/voyages-etudes', [VoyageEtudeController::class, 'index']);
+
+        // --- RAPPORTS : validation VR (ajout) ---
+        Route::patch('/rapports/{id}/valider', [RapportVoyageController::class, 'valider']);
+        Route::patch('/rapports/{id}/rejeter', [RapportVoyageController::class, 'rejeter']);
+        // --- fin ajout ---
     });
 
     // --- SUPPRESSION voyage et dossier — chef_departement + recteur + vice_recteur ---

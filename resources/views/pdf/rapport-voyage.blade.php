@@ -60,22 +60,21 @@
 
     <div class="info-row"><span class="label">Enseignant :</span> <span class="valeur">{{ $enseignant->prenom }} {{ $enseignant->nom }}</span></div>
     <div class="info-row"><span class="label">UFR :</span> <span class="valeur">{{ $enseignant->ufr ?? '___________' }}</span></div>
-    <div class="info-row"><span class="label">Destination :</span> <span class="valeur">{{ $voyage->destination ?? '___________' }}</span></div>
-    <div class="info-row"><span class="label">Date de départ :</span> <span class="valeur">{{ !empty($voyage->date_debut) ? \Carbon\Carbon::parse($voyage->date_debut)->format('d/m/Y') : '___________' }}</span></div>
-    <div class="info-row"><span class="label">Date de retour :</span> <span class="valeur">{{ !empty($voyage->date_fin) ? \Carbon\Carbon::parse($voyage->date_fin)->format('d/m/Y') : '___________' }}</span></div>
+    <div class="info-row"><span class="label">Destination :</span> <span class="valeur">{{ $voyage->destination ?? ($rapport->destination_libre ?? null) ?? '___________' }}</span></div>
+    <div class="info-row"><span class="label">Date de départ :</span> <span class="valeur">{{ !empty($voyage->date_debut) ? \Carbon\Carbon::parse($voyage->date_debut)->format('d/m/Y') : (!empty($rapport->date_debut_libre) ? \Carbon\Carbon::parse($rapport->date_debut_libre)->format('d/m/Y') : '___________') }}</span></div>
+    <div class="info-row"><span class="label">Date de retour :</span> <span class="valeur">{{ !empty($voyage->date_fin) ? \Carbon\Carbon::parse($voyage->date_fin)->format('d/m/Y') : (!empty($rapport->date_fin_libre) ? \Carbon\Carbon::parse($rapport->date_fin_libre)->format('d/m/Y') : '___________') }}</span></div>
     <div class="info-row"><span class="label">Date de dépôt du rapport :</span> <span class="valeur">{{ isset($rapport) && $rapport->date_depot ? \Carbon\Carbon::parse($rapport->date_depot)->format('d/m/Y') : '___________' }}</span></div>
 
-    <div class="objet">
-        <strong>Objet :</strong> Rapport de voyage d'études — {{ $voyage->destination ?? '___________' }}
+   <div class="objet">
+        <strong>Objet :</strong> Rapport de voyage d'études — {{ $voyage->destination ?? ($rapport->destination_libre ?? null) ?? '___________' }}
     </div>
-
     <p>Monsieur le Vice-Recteur,</p>
 
-    <p class="paragraphe">
+   <p class="paragraphe">
         J'ai l'honneur de vous soumettre, par la présente, le rapport relatif au voyage d'études
-        effectué du {{ !empty($voyage->date_debut) ? \Carbon\Carbon::parse($voyage->date_debut)->format('d/m/Y') : '___________' }}
-        au {{ !empty($voyage->date_fin) ? \Carbon\Carbon::parse($voyage->date_fin)->format('d/m/Y') : '___________' }}
-        à {{ $voyage->destination ?? '___________' }}, conformément à l'autorisation qui m'a été accordée.
+        effectué du {{ !empty($voyage->date_debut) ? \Carbon\Carbon::parse($voyage->date_debut)->format('d/m/Y') : (!empty($rapport->date_debut_libre) ? \Carbon\Carbon::parse($rapport->date_debut_libre)->format('d/m/Y') : '___________') }}
+        au {{ !empty($voyage->date_fin) ? \Carbon\Carbon::parse($voyage->date_fin)->format('d/m/Y') : (!empty($rapport->date_fin_libre) ? \Carbon\Carbon::parse($rapport->date_fin_libre)->format('d/m/Y') : '___________') }}
+        à {{ $voyage->destination ?? ($rapport->destination_libre ?? null) ?? '___________' }}, conformément à l'autorisation qui m'a été accordée.
     </p>
 
     <hr>

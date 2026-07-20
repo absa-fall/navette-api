@@ -28,6 +28,8 @@ class OrdreMissionController extends Controller
             'date_depart' => 'required|date',
             'heure_depart' => 'nullable|string', 
           'date_retour' => 'required|date|after_or_equal:date_depart',
+            // ✅ AJOUT : heure de retour (optionnelle)
+            'heure_retour' => 'nullable|string',
             'frais_transport' => 'nullable|string|max:200',
             'indemnite_deplacement' => 'nullable|string|max:200',
             'trajet' => 'nullable|in:dakar_bambey,thies_bambey,bambey_ngouniane,autres',
@@ -51,6 +53,8 @@ class OrdreMissionController extends Controller
             'date_depart' => $request->date_depart,
             'heure_depart' => $request->heure_depart ?? '06:00', 
             'date_retour' => $request->date_retour,
+            // ✅ AJOUT
+            'heure_retour' => $request->heure_retour,
             'frais_transport' => $request->frais_transport ?? 'Appui en carburant',
             'indemnite_deplacement' => $request->indemnite_deplacement ?? 'Néant',
             'trajet' => $request->trajet,
@@ -105,225 +109,234 @@ class OrdreMissionController extends Controller
             'ordre' => $ordre
         ]);
     }
-public function signalerIncident(Request $request, $id)
-{
-    $request->validate([
-        'motif' => 'required|string|max:1000',
-    ]);
 
-    $ordre = OrdreMission::findOrFail($id);
+    public function signalerIncident(Request $request, $id)
+    {
+        $request->validate([
+            'motif' => 'required|string|max:1000',
+        ]);
 
-    if ($ordre->chauffeur_id !== auth()->id()) {
-        return response()->json(['message' => 'Non autorisé'], 403);
+        $ordre = OrdreMission::findOrFail($id);
+
+        if ($ordre->chauffeur_id !== auth()->id()) {
+            return response()->json(['message' => 'Non autorisé'], 403);
+        }
+
+        if ($ordre->statut_chauffeur !== 'accepte') {
+            return response()->json(['message' => 'Aucune mission en cours pour signaler un incident'], 403);
+        }
+
+        $chauffeur = auth()->user();
+
+        $ordre->update([
+            'incident' => true,
+            'incident_motif' => $request->motif,
+            'incident_date' => now(),
+            'incident_transmis_drh' => false,
+            'incident_repondu_drh' => false,
+            'reponse_drh' => null,
+            'reponse_drh_date' => null,
+            'statut' => 'incident',
+        ]);
+
+        if ($ordre->vehicule_id) {
+            Vehicule::where('id', $ordre->vehicule_id)->update(['etat' => 'en_panne']);
+        }
+
+        if ($ordre->ddl_id) {
+            Notification::create([
+                'user_id' => $ordre->ddl_id,
+                'type' => 'incident_mission',
+                'titre' => 'Incident signalé par le chauffeur',
+                'message' => "Le chauffeur {$chauffeur->prenom} {$chauffeur->nom} a signalé un incident sur la mission {$ordre->destination} : {$request->motif}",
+                'ordre_id' => $ordre->id,
+                'lu' => false,
+            ]);
+        }
+
+        $sgVr = User::where('role', 'sg_vr')->first();
+
+        if ($sgVr) {
+            Notification::create([
+                'user_id' => $sgVr->id,
+                'type' => 'incident_mission',
+                'titre' => 'Incident sur une mission',
+                'message' => "Incident signalé sur la mission {$ordre->destination} (chauffeur {$chauffeur->prenom} {$chauffeur->nom}) : {$request->motif}",
+                'ordre_id' => $ordre->id,
+                'lu' => false,
+            ]);
+        }
+
+        Notification::create([
+            'user_id' => $chauffeur->id,
+            'type' => 'incident_recu',
+            'titre' => 'Incident reçu',
+            'message' => "Votre signalement d'incident pour la mission {$ordre->destination} a bien été reçu par le DDL. Il va être transmis au DRH.",
+            'ordre_id' => $ordre->id,
+            'lu' => false,
+        ]);
+
+        
+        Reservation::where('navette_id', $ordre->id)
+            ->whereNotIn('statut', ['terminee', 'annulee', 'refusee', 'incident'])
+            ->update(['statut' => 'incident']);
+
+        $passagersIds = Reservation::whereDate('date_reservation', $ordre->date_depart)
+            ->where('chauffeur_id', $ordre->chauffeur_id)
+            ->where(function ($q) use ($ordre) {
+                $q->where('vehicule_id', $ordre->vehicule_id)
+                  ->orWhereNull('vehicule_id');
+            })
+            ->whereIn('statut', ['en_attente_confirmation', 'confirmee', 'en_cours', 'incident'])
+            ->pluck('user_id')
+            ->unique();
+
+        foreach ($passagersIds as $passagerId) {
+            Notification::create([
+                'user_id' => $passagerId,
+                'type'    => 'incident_mission_passager',
+                'titre'   => 'Incident sur votre navette',
+                'message' => "Le bus prévu vers {$ordre->destination} a rencontré un incident. Votre trajet pourrait être retardé ou annulé. Motif : {$request->motif}",
+                'ordre_id'=> $ordre->id,
+                'lu'      => false,
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Incident signalé. Le DDL, le SG VR et les passagers ont été notifiés.',
+            'ordre' => $ordre,
+        ]);
     }
 
-    if ($ordre->statut_chauffeur !== 'accepte') {
-        return response()->json(['message' => 'Aucune mission en cours pour signaler un incident'], 403);
+    // DDL voit les incidents de ses missions, pas encore transmis au DRH
+    public function mesIncidents()
+    {
+        $incidents = OrdreMission::where('ddl_id', auth()->id())
+            ->where('incident', true)
+            ->where('incident_transmis_drh', false)
+            ->with(['chauffeur', 'vehicule'])
+            ->orderByDesc('incident_date')
+            ->get();
+
+        return response()->json($incidents);
     }
 
-    $chauffeur = auth()->user();
+    public function transmettreIncidentDrh($id)
+    {
+        $ordre = OrdreMission::findOrFail($id);
 
-    $ordre->update([
-        'incident' => true,
-        'incident_motif' => $request->motif,
-        'incident_date' => now(),
-        'incident_transmis_drh' => false,
-        'incident_repondu_drh' => false,
-        'reponse_drh' => null,
-        'reponse_drh_date' => null,
-        'statut' => 'incident',
-    ]);
+        if ($ordre->ddl_id !== auth()->id()) {
+            return response()->json(['message' => 'Non autorisé'], 403);
+        }
 
-    if ($ordre->vehicule_id) {
-        Vehicule::where('id', $ordre->vehicule_id)->update(['etat' => 'en_panne']);
-    }
+        if (!$ordre->incident) {
+            return response()->json(['message' => 'Aucun incident à transmettre'], 403);
+        }
 
-    if ($ordre->ddl_id) {
+        $ordre->update(['incident_transmis_drh' => true]);
+
+        $drh = User::where('role', 'drh')->first();
+        if ($drh) {
+            Notification::create([
+                'user_id' => $drh->id,
+                'type' => 'incident_mission',
+                'titre' => 'Incident transmis par le DDL',
+                'message' => "Le DDL a transmis un incident sur la mission {$ordre->destination} : {$ordre->incident_motif}. Une réponse est nécessaire pour permettre au DDL de rédiger un nouvel ordre.",
+                'ordre_id' => $ordre->id,
+                'lu' => false,
+            ]);
+        }
+
+        // Confirmation au DDL lui-meme
         Notification::create([
             'user_id' => $ordre->ddl_id,
-            'type' => 'incident_mission',
-            'titre' => 'Incident signalé par le chauffeur',
-            'message' => "Le chauffeur {$chauffeur->prenom} {$chauffeur->nom} a signalé un incident sur la mission {$ordre->destination} : {$request->motif}",
+            'type' => 'incident_transmis_confirmation',
+            'titre' => 'Incident transmis au DRH',
+            'message' => "Votre signalement d'incident pour la mission {$ordre->destination} a bien été transmis au DRH. Vous serez notifié dès sa réponse.",
             'ordre_id' => $ordre->id,
             'lu' => false,
         ]);
-    }
 
-    $sgVr = User::where('role', 'sg_vr')->first();
-
-    if ($sgVr) {
-        Notification::create([
-            'user_id' => $sgVr->id,
-            'type' => 'incident_mission',
-            'titre' => 'Incident sur une mission',
-            'message' => "Incident signalé sur la mission {$ordre->destination} (chauffeur {$chauffeur->prenom} {$chauffeur->nom}) : {$request->motif}",
-            'ordre_id' => $ordre->id,
-            'lu' => false,
+        return response()->json([
+            'message' => 'Incident transmis au DRH',
+            'ordre' => $ordre,
         ]);
     }
 
-    Notification::create([
-        'user_id' => $chauffeur->id,
-        'type' => 'incident_recu',
-        'titre' => 'Incident reçu',
-        'message' => "Votre signalement d'incident pour la mission {$ordre->destination} a bien été reçu par le DDL. Il va être transmis au DRH.",
-        'ordre_id' => $ordre->id,
-        'lu' => false,
+    public function maMissionActive()
+    {
+        $ordre = OrdreMission::where('chauffeur_id', auth()->id())
+            ->where('statut_chauffeur', 'accepte')
+            ->whereNotIn('statut', ['execute'])
+            ->with('vehicule')
+            ->orderBy('date_depart')
+            ->first();
+
+        return response()->json($ordre);
+    }
+
+    // Incidents transmis au DRH, en attente de reponse
+    public function incidentsEnAttenteDrh()
+    {
+        $incidents = OrdreMission::where('incident_transmis_drh', true)
+            ->where('incident_repondu_drh', false)
+            ->with(['chauffeur', 'ddl'])
+            ->orderByDesc('incident_date')
+            ->get();
+
+        return response()->json($incidents);
+    }
+
+    public function repondreIncidentDdl(Request $request, $id)
+    {
+        $request->validate([
+            'message' => 'required|string|max:1000',
+        ]);
+
+        $ordre = OrdreMission::findOrFail($id);
+
+        if (!$ordre->incident || !$ordre->incident_transmis_drh) {
+            return response()->json(['message' => 'Aucun incident transmis pour cet ordre'], 403);
+        }
+
+       $ordre->update([
+        'incident_repondu_drh' => true,
+        'reponse_drh' => $request->message,
+        'reponse_drh_date' => now(),
+        'statut' => 'transmis_chauffeur',  
     ]);
 
-    $passagersIds = Reservation::whereDate('date_reservation', $ordre->date_depart)
-        ->where('chauffeur_id', $ordre->chauffeur_id)
-        ->where(function ($q) use ($ordre) {
-            $q->where('vehicule_id', $ordre->vehicule_id)
-              ->orWhereNull('vehicule_id');
-        })
-        ->whereIn('statut', ['en_attente_confirmation', 'confirmee', 'en_cours'])
-        ->pluck('user_id')
-        ->unique();
+        // Le vehicule redevient disponible automatiquement
+        if ($ordre->vehicule_id) {
+            Vehicule::where('id', $ordre->vehicule_id)->update(['etat' => 'disponible']);
+        }
 
-    foreach ($passagersIds as $passagerId) {
-        Notification::create([
-            'user_id' => $passagerId,
-            'type'    => 'incident_mission_passager',
-            'titre'   => 'Incident sur votre navette',
-            'message' => "Le bus prévu vers {$ordre->destination} a rencontré un incident. Votre trajet pourrait être retardé ou annulé. Motif : {$request->motif}",
-            'ordre_id'=> $ordre->id,
-            'lu'      => false,
+        if ($ordre->ddl_id) {
+            Notification::create([
+                'user_id' => $ordre->ddl_id,
+                'type' => 'reponse_drh_incident',
+                'titre' => 'Réponse du DRH concernant l\'incident',
+                'message' => "Concernant l'incident sur la mission {$ordre->destination} : {$request->message}",
+                'ordre_id' => $ordre->id,
+                'lu' => false,
+            ]);
+        }
+        if ($ordre->chauffeur_id) {
+            Notification::create([
+                'user_id' => $ordre->chauffeur_id,
+                'type' => 'reponse_drh_incident',
+                'titre' => 'Réponse du DRH à votre incident',
+                'message' => "Le DRH a répondu à votre signalement pour la mission {$ordre->destination} : {$request->message}",
+                'ordre_id' => $ordre->id,
+                'lu' => false,
+            ]);
+        }
+         return response()->json([
+            'message' => 'Réponse envoyée au DDL',
+            'ordre' => $ordre,
         ]);
     }
 
-    return response()->json([
-        'message' => 'Incident signalé. Le DDL, le SG VR et les passagers ont été notifiés.',
-        'ordre' => $ordre,
-    ]);
-}
-// DDL voit les incidents de ses missions, pas encore transmis au DRH
-public function mesIncidents()
-{
-    $incidents = OrdreMission::where('ddl_id', auth()->id())
-        ->where('incident', true)
-        ->where('incident_transmis_drh', false)
-        ->with(['chauffeur', 'vehicule'])
-        ->orderByDesc('incident_date')
-        ->get();
-
-    return response()->json($incidents);
-}
-
-public function transmettreIncidentDrh($id)
-{
-    $ordre = OrdreMission::findOrFail($id);
-
-    if ($ordre->ddl_id !== auth()->id()) {
-        return response()->json(['message' => 'Non autorisé'], 403);
-    }
-
-    if (!$ordre->incident) {
-        return response()->json(['message' => 'Aucun incident à transmettre'], 403);
-    }
-
-    $ordre->update(['incident_transmis_drh' => true]);
-
-    $drh = User::where('role', 'drh')->first();
-    if ($drh) {
-        Notification::create([
-            'user_id' => $drh->id,
-            'type' => 'incident_mission',
-            'titre' => 'Incident transmis par le DDL',
-            'message' => "Le DDL a transmis un incident sur la mission {$ordre->destination} : {$ordre->incident_motif}. Une réponse est nécessaire pour permettre au DDL de rédiger un nouvel ordre.",
-            'ordre_id' => $ordre->id,
-            'lu' => false,
-        ]);
-    }
-
-    // Confirmation au DDL lui-meme
-    Notification::create([
-        'user_id' => $ordre->ddl_id,
-        'type' => 'incident_transmis_confirmation',
-        'titre' => 'Incident transmis au DRH',
-        'message' => "Votre signalement d'incident pour la mission {$ordre->destination} a bien été transmis au DRH. Vous serez notifié dès sa réponse.",
-        'ordre_id' => $ordre->id,
-        'lu' => false,
-    ]);
-
-    return response()->json([
-        'message' => 'Incident transmis au DRH',
-        'ordre' => $ordre,
-    ]);
-}
-public function maMissionActive()
-{
-    $ordre = OrdreMission::where('chauffeur_id', auth()->id())
-        ->where('statut_chauffeur', 'accepte')
-        ->whereNotIn('statut', ['execute'])
-        ->with('vehicule')
-        ->orderBy('date_depart')
-        ->first();
-
-    return response()->json($ordre);
-}
-
-// Incidents transmis au DRH, en attente de reponse
-public function incidentsEnAttenteDrh()
-{
-    $incidents = OrdreMission::where('incident_transmis_drh', true)
-        ->where('incident_repondu_drh', false)
-        ->with(['chauffeur', 'ddl'])
-        ->orderByDesc('incident_date')
-        ->get();
-
-    return response()->json($incidents);
-}
-
-public function repondreIncidentDdl(Request $request, $id)
-{
-    $request->validate([
-        'message' => 'required|string|max:1000',
-    ]);
-
-    $ordre = OrdreMission::findOrFail($id);
-
-    if (!$ordre->incident || !$ordre->incident_transmis_drh) {
-        return response()->json(['message' => 'Aucun incident transmis pour cet ordre'], 403);
-    }
-
-   $ordre->update([
-    'incident_repondu_drh' => true,
-    'reponse_drh' => $request->message,
-    'reponse_drh_date' => now(),
-    'statut' => 'transmis_chauffeur',  
-]);
-
-    // Le vehicule redevient disponible automatiquement
-    if ($ordre->vehicule_id) {
-        Vehicule::where('id', $ordre->vehicule_id)->update(['etat' => 'disponible']);
-    }
-
-    if ($ordre->ddl_id) {
-        Notification::create([
-            'user_id' => $ordre->ddl_id,
-            'type' => 'reponse_drh_incident',
-            'titre' => 'Réponse du DRH concernant l\'incident',
-            'message' => "Concernant l'incident sur la mission {$ordre->destination} : {$request->message}",
-            'ordre_id' => $ordre->id,
-            'lu' => false,
-        ]);
-    }
-if ($ordre->chauffeur_id) {
-        Notification::create([
-            'user_id' => $ordre->chauffeur_id,
-            'type' => 'reponse_drh_incident',
-            'titre' => 'Réponse du DRH à votre incident',
-            'message' => "Le DRH a répondu à votre signalement pour la mission {$ordre->destination} : {$request->message}",
-            'ordre_id' => $ordre->id,
-            'lu' => false,
-        ]);
-    }
-     return response()->json([
-        'message' => 'Réponse envoyée au DDL',
-        'ordre' => $ordre,
-    ]);
-}
     // Liste des ordres selon le rôle avec filtre par statut
     public function index(Request $request)
     {
@@ -507,23 +520,40 @@ if ($ordre->chauffeur_id) {
             ]);
         }
 
+        // ✅ Notifier tous les passagers que la navette est confirmée
+        // (déplacé ici : la navette doit être visible dès la signature du SG DRH,
+        // pas seulement après l'approbation du chauffeur — voir prochainesNavettes())
+        $passagers = User::whereIn('role', ['enseignant', 'usager'])->get();
+        $dateDepart = \Carbon\Carbon::parse($ordre->date_depart)->format('d/m/Y');
+        foreach ($passagers as $passager) {
+            Notification::create([
+                'user_id' => $passager->id,
+                'type' => 'navette_disponible',
+                'titre' => 'Navette confirmée',
+                'message' => "Une navette est prévue le {$dateDepart} à {$ordre->heure_depart} vers {$ordre->destination}. Vous pouvez réserver votre place.",
+                'ordre_id' => $ordre->id,
+                'lu' => false,
+            ]);
+        }
+
         return response()->json([
             'message' => 'Ordre signé et transmis au chauffeur',
             'ordre' => $ordre
         ]);
     }
 
-   public function pourChauffeur()
-{
-    $ordres = OrdreMission::where('chauffeur_id', auth()->id())
-        ->where('masque_chauffeur', false)
-        ->whereIn('statut', ['transmis_chauffeur', 'execute'])
-        ->with(['ddl', 'vehicule'])
-        ->latest()
-        ->get();
+    public function pourChauffeur()
+    {
+        $ordres = OrdreMission::where('chauffeur_id', auth()->id())
+            ->where('masque_chauffeur', false)
+            ->whereIn('statut', ['transmis_chauffeur', 'execute'])
+            ->with(['ddl', 'vehicule'])
+            ->latest()
+            ->get();
 
-    return response()->json($ordres);
-}
+        return response()->json($ordres);
+    }
+
     // Chauffeur marque comme exécuté
     public function marquerRecu($id)
     {
@@ -550,6 +580,50 @@ if ($ordre->chauffeur_id) {
         }
 
         $ordre->update(['statut' => 'execute']);
+
+        $aujourdHui = now()->startOfDay();
+
+        // ✅ Cas 1 — Aller-retour : l'aller a pu être fait, mais le retour n'a
+        // jamais été validé (validee_montee = false) et la date de retour de
+        // la navette est déjà passée → statut = "retour_non_effectue".
+        // On exclut 'incident' : une navette en incident garde ce statut tant
+        // que le DRH n'y a pas répondu (voir signalerIncident / repondreIncidentDdl).
+        $dateRetour = $ordre->date_retour ? \Carbon\Carbon::parse($ordre->date_retour)->startOfDay() : null;
+        if ($dateRetour && $dateRetour->lt($aujourdHui)) {
+            Reservation::where('navette_id', $ordre->id)
+                ->where('type_trajet', 'aller_retour')
+                ->where('trajet_sens', 'retour')
+                ->where('validee_montee', false)
+                ->whereNotIn('statut', ['terminee', 'annulee', 'refusee', 'incident'])
+                ->update(['statut' => 'retour_non_effectue']);
+        }
+
+        // ✅ Cas 2 — Réservation simple (aller seul OU retour seul) : le passager
+        // n'a jamais scanné sa montée (validee_montee = false) et la date de
+        // sa réservation est déjà passée → statut = "annulee".
+        $dateDepart = $ordre->date_depart ? \Carbon\Carbon::parse($ordre->date_depart)->startOfDay() : null;
+        if ($dateDepart && $dateDepart->lt($aujourdHui)) {
+            $reservationsAnnulees = Reservation::where('navette_id', $ordre->id)
+                ->where('type_trajet', '!=', 'aller_retour')
+                ->where('validee_montee', false)
+                ->whereNotIn('statut', ['terminee', 'annulee', 'refusee', 'incident'])
+                ->get();
+
+            foreach ($reservationsAnnulees as $r) {
+                $r->update(['statut' => 'annulee']);
+
+                Notification::create([
+                    'user_id' => $r->user_id,
+                    'type'    => 'reservation_annulee_absence',
+                    'titre'   => 'Réservation annulée',
+                    'message' => 'Votre réservation du '
+                        . \Carbon\Carbon::parse($r->date_reservation)->format('d/m/Y')
+                        . ' (' . $r->ville_depart . ' → ' . $r->ville_arrivee
+                        . ') a été annulée automatiquement car vous ne vous êtes pas présenté(e).',
+                    'lu'      => false,
+                ]);
+            }
+        }
 
         // Notifier le DDL que c'est exécuté
         if ($ordre->ddl_id) {
@@ -625,18 +699,11 @@ if ($ordre->chauffeur_id) {
                 'lu' => false,
             ]);
         }
- $passagers = User::whereIn('role', ['enseignant', 'usager'])->get();
-    $dateDepart = \Carbon\Carbon::parse($ordre->date_depart)->format('d/m/Y');
-    foreach ($passagers as $passager) {
-        Notification::create([
-            'user_id' => $passager->id,
-            'type' => 'navette_disponible',
-            'titre' => 'Navette confirmée',
-            'message' => "Une navette est prévue le {$dateDepart} à {$ordre->heure_depart} vers {$ordre->destination}. Vous pouvez réserver votre place.",
-            'ordre_id' => $ordre->id,
-            'lu' => false,
-        ]);
-    }
+
+        // NOTE : la notification aux passagers ("navette_disponible") a été déplacée
+        // dans signer() — les passagers doivent voir la navette dès la signature du
+        // SG DRH, pas seulement après l'approbation du chauffeur.
+
         return response()->json([
             'message' => 'Mission approuvée par le chauffeur. Le DDL a été notifié.'
         ]);
@@ -787,74 +854,81 @@ if ($ordre->chauffeur_id) {
     }
 
     public function destroy($id)
-{
-    $ordre = OrdreMission::findOrFail($id);
-    $user = auth()->user();
+    {
+        $ordre = OrdreMission::findOrFail($id);
+        $user = auth()->user();
 
-    // Admin : masquage uniquement, jamais de suppression réelle
-    if ($user->role === 'admin') {
-        $ordre->update(['masque_admin' => true]);
+        // Admin : masquage uniquement, jamais de suppression réelle
+        if ($user->role === 'admin') {
+            $ordre->update(['masque_admin' => true]);
+            return response()->json(['message' => 'Ordre supprimé avec succès']);
+        }
+
+        // Comportement original pour le ddl (propriétaire)
+        if ($ordre->ddl_id !== $user->id) {
+            return response()->json(['message' => 'Non autorisé'], 403);
+        }
+        if ($ordre->statut === 'incident') {
+            $ordre->update(['masque_ddl' => true]);
+            return response()->json(['message' => 'Ordre supprimé avec succès']);
+        }
+        if (!in_array($ordre->statut, ['brouillon', 'en_attente_drh', 'rejete'])) {
+            return response()->json(['message' => 'Impossible de supprimer un ordre déjà traité'], 403);
+        }
+
+        $ordre->delete();
+
         return response()->json(['message' => 'Ordre supprimé avec succès']);
     }
 
-    // Comportement original pour le ddl (propriétaire)
-    if ($ordre->ddl_id !== $user->id) {
-        return response()->json(['message' => 'Non autorisé'], 403);
-    }
- if ($ordre->statut === 'incident') {
-        $ordre->update(['masque_ddl' => true]);
-        return response()->json(['message' => 'Ordre supprimé avec succès']);
-    }
-    if (!in_array($ordre->statut, ['brouillon', 'en_attente_drh', 'rejete'])) {
-        return response()->json(['message' => 'Impossible de supprimer un ordre déjà traité'], 403);
-    }
+    // Prochaines navettes confirmées (visibles par tous les passagers)
+    // ✅ Basé sur la signature du SG DRH (statut = transmis_chauffeur), pas sur
+    // l'approbation du chauffeur : la navette doit être visible dès que l'ordre
+    // est signé et transmis, indépendamment du moment où le chauffeur approuve.
+    public function prochainesNavettes()
+    {
+        $navettes = OrdreMission::where('statut', 'transmis_chauffeur')
+            ->where('statut_chauffeur', '!=', 'refuse')
+            ->where('date_depart', '>=', now()->toDateString())
+            ->orderBy('date_depart')
+            ->orderBy('heure_depart')
+            // ✅ AJOUT : heure_retour pour affichage côté passager
+            ->select('id', 'destination', 'date_depart', 'heure_depart', 'date_retour', 'heure_retour', 'trajet', 'trajet_autre')
+            ->get();
 
-    $ordre->delete();
-
-    return response()->json(['message' => 'Ordre supprimé avec succès']);
-}
-// Prochaines navettes confirmées (visibles par tous les passagers)
-public function prochainesNavettes()
-{
-    $navettes = OrdreMission::where('statut_chauffeur', 'accepte')
-        ->where('date_depart', '>=', now()->toDateString())
-        ->orderBy('date_depart')
-        ->orderBy('heure_depart')
-        ->select('id', 'destination', 'date_depart', 'heure_depart', 'trajet', 'trajet_autre')
-        ->get();
-
-    return response()->json($navettes);
-}
-  public function supprimerHistorique(Request $request, $id)
-{
-    $ordre = OrdreMission::findOrFail($id);
-    $user = auth()->user();
-
-    if ($user->role === 'ddl' && $ordre->ddl_id === $user->id) {
-        $ordre->update(['masque_ddl' => true]);
-        return response()->json(['message' => 'Demande masquée de votre vue']);
+        return response()->json($navettes);
     }
 
-    $champ = match($user->role) {
-        'drh' => 'masque_drh',
-        'sg_drh' => 'masque_sg_drh',
-        'chauffeur' => 'masque_chauffeur',
-        default => null
-    };
+    public function supprimerHistorique(Request $request, $id)
+    {
+        $ordre = OrdreMission::findOrFail($id);
+        $user = auth()->user();
 
-    if (!$champ) {
-        return response()->json(['message' => 'Non autorisé'], 403);
+        if ($user->role === 'ddl' && $ordre->ddl_id === $user->id) {
+            $ordre->update(['masque_ddl' => true]);
+            return response()->json(['message' => 'Demande masquée de votre vue']);
+        }
+
+        $champ = match($user->role) {
+            'drh' => 'masque_drh',
+            'sg_drh' => 'masque_sg_drh',
+            'chauffeur' => 'masque_chauffeur',
+            default => null
+        };
+
+        if (!$champ) {
+            return response()->json(['message' => 'Non autorisé'], 403);
+        }
+
+        // Empêche de masquer un incident tant que le DRH n'y a pas répondu
+        if ($champ === 'masque_drh' && $ordre->incident && !$ordre->incident_repondu_drh) {
+            return response()->json([
+                'message' => 'Vous devez répondre à l\'incident avant de pouvoir le masquer'
+            ], 403);
+        }
+
+        $ordre->update([$champ => true]);
+
+        return response()->json(['message' => 'Supprimé de votre historique']);
     }
-
-    // Empêche de masquer un incident tant que le DRH n'y a pas répondu
-    if ($champ === 'masque_drh' && $ordre->incident && !$ordre->incident_repondu_drh) {
-        return response()->json([
-            'message' => 'Vous devez répondre à l\'incident avant de pouvoir le masquer'
-        ], 403);
-    }
-
-    $ordre->update([$champ => true]);
-
-    return response()->json(['message' => 'Supprimé de votre historique']);
-}
 }

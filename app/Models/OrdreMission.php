@@ -25,6 +25,7 @@ class OrdreMission extends Model
     'date_depart',
     'heure_depart',
     'date_retour',
+    'heure_retour',
     'frais_transport',
     'indemnite_deplacement',
     'statut_chauffeur',

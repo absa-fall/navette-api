@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('voyages:verifier-delais')->dailyAt('08:00');
+Schedule::command('reservations:cloturer-non-effectuees')->hourly();

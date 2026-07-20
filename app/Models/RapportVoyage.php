@@ -19,9 +19,9 @@ class RapportVoyage extends Model
     'signature_enseignant',
 ];
 
-    protected $casts = [
-        'date_depot' => 'date',
-    ];
+   protected $casts = [
+    'date_depot' => 'datetime',
+];
 
     public function voyage()
     {

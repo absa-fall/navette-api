@@ -72,6 +72,7 @@ Route::get('/vehicules/{id}/position', [VehiculePositionController::class, 'show
         Route::delete('/recapitulatifs/supprimer-selection', [RecapitulatifHebdoController::class, 'supprimerSelection']);
         Route::get('/reservations/sgvr', [ReservationController::class, 'pourSGVR']);
         Route::patch('/reservations/{id}/cloturer-incident', [ReservationController::class, 'cloturerIncident']);
+        Route::patch('/recapitulatifs/{id}/signer', [RecapitulatifHebdoController::class, 'signer']);
     });
 
     // ============================================
@@ -155,7 +156,7 @@ Route::get('/vehicules/{id}/position', [VehiculePositionController::class, 'show
     Route::post('/ordres-mission/{id}/transmettre-incident-drh', [OrdreMissionController::class, 'transmettreIncidentDrh']);
     Route::post('/ordres-mission/{id}/repondre-incident-ddl', [OrdreMissionController::class, 'repondreIncidentDdl']);
     Route::get('/ordres-mission/{id}', [OrdreMissionController::class, 'show']);
-
+Route::patch('/ordres-mission/{ordre}/marquer-execute-manuel', [OrdreMissionController::class, 'marquerExecuteManuel']);
     Route::middleware('role:ddl')->group(function () {
         Route::post('/ordres-mission', [OrdreMissionController::class, 'store']);
         Route::post('/ordres-mission/{id}/transmettre', [OrdreMissionController::class, 'transmettre']);

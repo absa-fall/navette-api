@@ -931,4 +931,39 @@ class OrdreMissionController extends Controller
 
         return response()->json(['message' => 'Supprimé de votre historique']);
     }
+   public function marquerExecuteManuel(Request $request, $id)
+{
+    $ordre = OrdreMission::findOrFail($id);
+
+    if ($request->user()->id !== $ordre->ddl_id) {
+        return response()->json(['message' => 'Seul le DDL à l\'origine de la demande peut effectuer cette action.'], 403);
+    }
+
+    if ($ordre->statut !== 'transmis_chauffeur') {
+        return response()->json(['message' => 'Cet ordre ne peut pas être marqué comme exécuté dans son état actuel.'], 422);
+    }
+
+    $ordre->update([
+        'statut' => 'execute',
+        'execute_automatiquement' => false,
+    ]);
+
+    // Notifier le DRH, comme pour une exécution normale via le chauffeur
+    $drh = User::where('role', 'drh')->first();
+    if ($drh) {
+        Notification::create([
+            'user_id' => $drh->id,
+            'type' => 'mission_executee',
+            'titre' => 'Mission exécutée',
+            'message' => "L'ordre de mission pour {$ordre->destination} a été marqué comme exécuté par le DDL (le chauffeur n'avait pas confirmé).",
+            'ordre_id' => $ordre->id,
+            'lu' => false,
+        ]);
+    }
+
+    return response()->json([
+        'message' => 'Ordre marqué comme exécuté.',
+        'ordre' => $ordre,
+    ]);
+}
 }

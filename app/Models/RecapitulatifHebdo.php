@@ -11,14 +11,15 @@ class RecapitulatifHebdo extends Model
 
     protected $table = 'recapitulatifs_hebdo';
 
-    protected $fillable = [
-        'sg_vr_id',
-        'semaine_debut',
-        'semaine_fin',
-        'montant_total',
-        'statut',
-        'date_generation',
-    ];
+   protected $fillable = [
+    'sg_vr_id',
+    'semaine_debut',
+    'semaine_fin',
+    'montant_total',
+    'statut',
+    'date_generation',
+    'signature_sg_vr',   
+];
 
     protected $casts = [
         'semaine_debut' => 'date',

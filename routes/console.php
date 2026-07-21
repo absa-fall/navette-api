@@ -10,3 +10,4 @@ Artisan::command('inspire', function () {
 
 Schedule::command('voyages:verifier-delais')->dailyAt('08:00');
 Schedule::command('reservations:cloturer-non-effectuees')->hourly();
+Schedule::command('ordres-mission:verifier-expires')->dailyAt('09:00');

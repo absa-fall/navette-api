@@ -169,4 +169,29 @@ $detailParPersonne[$key]['trajets'][] = [
             'message' => $deleted . ' récapitulatif(s) supprimé(s) avec succès'
         ]);
     }
+    public function signer(Request $request, $id)
+{
+    $request->validate([
+        'signature' => 'required|string',
+    ]);
+
+    $recap = RecapitulatifHebdo::findOrFail($id);
+
+    if ($recap->sg_vr_id !== auth()->id()) {
+        return response()->json(['message' => 'Non autorisé'], 403);
+    }
+
+    if ($recap->signature_sg_vr) {
+        return response()->json(['message' => 'Ce récapitulatif est déjà signé'], 422);
+    }
+
+    $recap->update([
+        'signature_sg_vr' => $request->signature,
+    ]);
+
+    return response()->json([
+        'message' => 'Signature enregistrée avec succès',
+        'recapitulatif' => $recap,
+    ]);
+}
 }
